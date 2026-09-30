@@ -121,7 +121,9 @@ function GooglePhotos:_screenshotWrapped(orig, shot, ...)
         local r = pack(pcall(real_shot, scr, name, ...))
         current = nil
         if not r[1] then error(r[2], 0) end
-        if type(name) == "string" and (r[2] == true or (r[2] == nil and enc_ok == true)) then
+        local a = type(name) == "string" and lfs.symlinkattributes(name) or nil
+        local written = a and a.mode == "file" and (a.size or 0) > 0
+        if written and (r[2] == true or (r[2] == nil and enc_ok == true)) then
             captured = name
         end
         return unpack(r, 2, r.n)

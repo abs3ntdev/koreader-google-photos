@@ -39,7 +39,7 @@ local mocks = {
     -- Mirrors released fb:shot -> bb:writePNG -> Png.encodeToFile: result discarded.
     device = { screen = { shot = function(_, name)
         if name:find("RETFALSE") then return false, "EIO" end
-        if name:find("RETTRUE") then return true end
+        if name:find("RETTRUE") then FS[name] = { mode = "file", size = 3 }; return true end
         require("ffi/png").encodeToFile(name)
     end } },
     ["ffi/png"] = { encodeToFile = function(name)
@@ -223,6 +223,11 @@ T.test("screenshot: failed capture and unrelated dialogs are untouched; hooks re
     end
     T.eq(Screen.shot, orig_shot); T.eq(ButtonDialog.new, orig_new)
     T.eq(mocks["ffi/png"].encodeToFile, orig_enc)
+    -- encoder claims success but nothing regular was written (e.g. symlink/empty)
+    mocks["ffi/png"].encodeToFile = function(name) FS[name] = { mode = "link" }; return true end
+    shot:onScreenshot("/shots/fake.png")
+    T.eq(upload_row(shown[#shown]), nil, "reported success without a regular non-empty file")
+    mocks["ffi/png"].encodeToFile = orig_enc
     shot:onScreenshot("/shots/RETTRUE.png")
     T.ok(upload_row(shown[#shown]), "newer KOReader returning true is authoritative")
     p:resolveUncertain() -- unrelated ButtonDialog outside a screenshot
