@@ -1,0 +1,51 @@
+name: Release plugin
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: service/package-lock.json
+      - name: Install LuaJIT and zip
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends luajit zip
+      - run: npm ci --prefix service
+      - name: make package (gated on make check)
+        run: make package
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum googlephotos.koplugin.zip > SHA256SUMS.txt
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cat > notes.md <<'NOTES'
+          **MVP release.** Live Google Photos Picker flow and on-device KOReader behaviour are not yet verified end to end. Use at your own risk.
+
+          Assets: `googlephotos.koplugin.zip` (unzip into KOReader `plugins/`) and `SHA256SUMS.txt`.
+          Broker image: `ghcr.io/abs3ntdev/koreader-google-photos:${TAG#v}`.
+          NOTES
+          sed -i "s/\${TAG#v}/${TAG#v}/" notes.md
+          pre=""
+          case "$TAG" in v0.*|*-*) pre="--prerelease" ;; esac
+          gh release create "$TAG" --verify-tag --generate-notes --notes-file notes.md $pre \
+            --title "$TAG" dist/googlephotos.koplugin.zip dist/SHA256SUMS.txt
