@@ -1,0 +1,30 @@
+{
+  "name": "koreader-google-photos-broker",
+  "version": "1.0.0",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "start": "node src/server.ts",
+    "typecheck": "tsc -p .",
+    "check": "npm run typecheck && npm test"
+  },
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/formbody": "^9.0.0",
+    "@fastify/rate-limit": "^11.2.0",
+    "fastify": "^5.12.5",
+    "openid-client": "^6.8.8"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  }
+}
