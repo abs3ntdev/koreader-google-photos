@@ -73,9 +73,10 @@ For local end-to-end tests, your phone cannot reach `localhost`. Complete the Go
 Checks (the Makefile runs both suites):
 
 ```sh
-make check            # service typecheck + tests, and Lua specs
-make package          # dist/googlephotos.koplugin.zip
-cd service && npm run check   # service only
+make check            # service typecheck + tests, Lua specs, and loopback smoke test
+make smoke            # only: start real server.ts on loopback with dummy OAuth env, exercise HTTP routes (no Google calls)
+make package          # runs check, then builds dist/googlephotos.koplugin.zip (plugin dir at archive root, specs excluded)
+cd service && npm run check   # service only: tsc + node --test
 ```
 
 ## HTTPS deployment (not performed; instructions only)
