@@ -39,7 +39,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           cat > notes.md <<'NOTES'
-          **MVP release.** Live Google Photos Picker flow and on-device KOReader behaviour are not yet verified end to end. Use at your own risk.
+          **MVP release.** Live Google Photos OAuth and upload flow and on-device KOReader behaviour are not yet verified end to end. Use at your own risk.
 
           Assets: `googlephotos.koplugin.zip` (unzip into KOReader `plugins/`) and `SHA256SUMS.txt`.
           Broker image: `ghcr.io/abs3ntdev/koreader-google-photos:${TAG#v}`.

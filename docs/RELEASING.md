@@ -4,7 +4,8 @@
 
 - `.github/workflows/ci.yml` runs on pushes to `main`, `v*` tags, PRs to `main`, and manual dispatch.
   - `check`: Node 24, `npm ci --prefix service`, LuaJIT, then `make package` (which runs `make check`). Uploads the plugin zip as an artifact.
-  - `docker`: needs `check`. Builds `service/` with its Dockerfile. PRs build `linux/amd64` only and never push or log in. Pushes to `main` and tags publish `linux/amd64,linux/arm64` to `ghcr.io/abs3ntdev/koreader-google-photos`.
+  - `docker-build` (PRs only, needs `check`): builds `service/` for `linux/amd64` with `contents: read` only. No login, no push, no package permissions.
+  - `docker-publish` (non-PR only, needs `check`): the only job with `packages: write`. Pushes to `main` and tags publish `linux/amd64,linux/arm64` to `ghcr.io/abs3ntdev/koreader-google-photos`.
 - `.github/workflows/release.yml` runs on `v*` tags: re-runs `make package`, writes `SHA256SUMS.txt`, and creates a GitHub release with `gh release create --verify-tag --generate-notes`. `v0.*` and `-suffixed` tags are marked prerelease. Notes flag the release as an MVP with live Google and device behaviour unverified.
 
 Only `GITHUB_TOKEN` is used. No personal or Google credentials are stored in CI. PR workflows use `pull_request` (not `pull_request_target`) with read-only permissions.
