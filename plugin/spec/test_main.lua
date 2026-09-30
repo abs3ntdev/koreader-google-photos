@@ -36,13 +36,17 @@ local mocks = {
     ["ui/widget/inputdialog"] = { new = widget("input") },
     ["ui/network/manager"] = { runWhenOnline = function(_, cb) online_queue[#online_queue + 1] = cb end },
     ["ui/uimanager"] = UIManager,
-    -- Released fb:shot returns nothing; a write creates/overwrites the file.
+    -- Mirrors released fb:shot -> bb:writePNG -> Png.encodeToFile: result discarded.
     device = { screen = { shot = function(_, name)
         if name:find("RETFALSE") then return false, "EIO" end
-        if not name:find("FAIL") then
-            FS[name] = { mode = "file", size = 10, modification = (FS[name] and FS[name].modification or 0) + 1 }
-        end
+        if name:find("RETTRUE") then return true end
+        require("ffi/png").encodeToFile(name)
     end } },
+    ["ffi/png"] = { encodeToFile = function(name)
+        if name:find("FAIL") then return false, "lodepng error" end
+        FS[name] = { mode = "file", size = 10 }
+        return true
+    end },
     ["ui/widget/container/widgetcontainer"] = { extend = function(_, cls)
         cls.__index = cls
         cls.new = function(c, o) o = setmetatable(o or {}, c); if o.init then o:init() end; return o end
@@ -212,11 +216,15 @@ T.test("screenshot: failed capture and unrelated dialogs are untouched; hooks re
     local p = new_plugin({ screenshot = shot })
     local orig_shot, orig_new = Screen.shot, ButtonDialog.new
     FS["/shots/FAIL_stale.png"] = { mode = "file", size = 5, modification = 1 }
+    local orig_enc = mocks["ffi/png"].encodeToFile
     for _, name in ipairs({ "/shots/FAIL.png", "/shots/FAIL_stale.png", "/shots/RETFALSE.png" }) do
         shot:onScreenshot(name)
         T.eq(upload_row(shown[#shown]), nil, name .. ": silent/explicit failure or stale file must not get a button")
     end
     T.eq(Screen.shot, orig_shot); T.eq(ButtonDialog.new, orig_new)
+    T.eq(mocks["ffi/png"].encodeToFile, orig_enc)
+    shot:onScreenshot("/shots/RETTRUE.png")
+    T.ok(upload_row(shown[#shown]), "newer KOReader returning true is authoritative")
     p:resolveUncertain() -- unrelated ButtonDialog outside a screenshot
     local other = ButtonDialog:new{ buttons = {{{ text = "x" }}}, tap_close_callback = function() end }
     T.eq(upload_row(other), nil)

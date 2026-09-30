@@ -95,22 +95,36 @@ function GooglePhotos:_screenshotWrapped(orig, shot, ...)
     local real_shot = Screen.shot
     local had_new, old_new = rawget(ButtonDialog, "new") ~= nil, rawget(ButtonDialog, "new")
     local real_new = ButtonDialog.new
-    Screen.shot = function(scr, name, ...)
-        -- Released KOReader (fb:shot in ffi/framebuffer.lua) returns nothing,
-        -- even when lodepng fails, so the return value alone cannot prove
-        -- success. Accept only: no explicit false, and the path is now a
-        -- regular non-empty file that is new or changed (size/mtime) since
-        -- just before the call. A stale pre-existing file is never accepted.
-        local before = type(name) == "string" and lfs.symlinkattributes(name) or nil
-        local r = pack(real_shot(scr, name, ...))
-        if r[1] ~= false and type(name) == "string" then
-            local a = lfs.symlinkattributes(name)
-            if a and a.mode == "file" and (a.size or 0) > 0 and (not before
-                    or before.size ~= a.size or before.modification ~= a.modification) then
-                captured = name
+    -- Released KOReader fb:shot/writePNG discard the ffi/png.encodeToFile
+    -- result, so Screen:shot returns nothing on success AND failure. While the
+    -- shot runs we also observe Png.encodeToFile (looked up per call by
+    -- writePNG) for the same filename. Success = shot returned true, or shot
+    -- returned nil and every encode of that exact filename returned true.
+    local okp, Png = pcall(require, "ffi/png")
+    if not okp or type(Png) ~= "table" then Png = nil end
+    local had_enc, old_enc = Png and rawget(Png, "encodeToFile") ~= nil, Png and rawget(Png, "encodeToFile")
+    local enc_ok -- nil: not observed, true: all ok, false: any failure
+    local current
+    if Png and type(Png.encodeToFile) == "function" then
+        local real_enc = Png.encodeToFile
+        Png.encodeToFile = function(fname, ...)
+            local r = pack(pcall(real_enc, fname, ...))
+            if current and fname == current then
+                enc_ok = (enc_ok ~= false) and r[1] and r[2] == true
             end
+            if not r[1] then error(r[2], 0) end
+            return unpack(r, 2, r.n)
         end
-        return unpack(r, 1, r.n)
+    end
+    Screen.shot = function(scr, name, ...)
+        current, enc_ok = name, nil
+        local r = pack(pcall(real_shot, scr, name, ...))
+        current = nil
+        if not r[1] then error(r[2], 0) end
+        if type(name) == "string" and (r[2] == true or (r[2] == nil and enc_ok == true)) then
+            captured = name
+        end
+        return unpack(r, 2, r.n)
     end
     ButtonDialog.new = function(cls, o, ...)
         if captured and type(o) == "table" and type(o.buttons) == "table" and o.tap_close_callback then
@@ -131,6 +145,7 @@ function GooglePhotos:_screenshotWrapped(orig, shot, ...)
     local r = pack(pcall(orig, shot, ...))
     if had_shot then Screen.shot = old_shot else Screen.shot = nil end
     if had_new then ButtonDialog.new = old_new else ButtonDialog.new = nil end
+    if Png then if had_enc then Png.encodeToFile = old_enc else Png.encodeToFile = nil end end
     if not r[1] then error(r[2], 0) end
     return unpack(r, 2, r.n)
 end
