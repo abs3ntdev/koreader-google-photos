@@ -189,6 +189,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.post("/api/pairings/:id/poll", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (req, reply) => {
     const p = readerAuth(req, reply);
     if (!p) return reply;
+    // Both sides already consented but a previous finalize failed (e.g. transient
+    // store write error): retry it here so the flow can complete.
+    try {
+      await maybeFinalize(p);
+    } catch {
+      return err(reply, 500, "internal");
+    }
     return reply.send(readerView(p));
   });
 

@@ -436,6 +436,23 @@ test("race: unpair during in-flight refresh -> no access token returned, device 
   assert.ok(!(await readFile(path.join(dir, "data", "devices.json"), "utf8")).includes(device.device_id));
 });
 
+test("finalize failure after both confirmations (phone last) is retried by the next reader poll", async () => {
+  const a = await authorize();
+  const code = (await poll(a.pair.pairing_id, a.pair.poll_secret)).json().confirmation_code;
+  assert.equal((await readerConfirm(a.pair.pairing_id, a.pair.poll_secret, code)).json().status, "reader_confirmed");
+  const dataDir = path.join(dir, "data");
+  await chmod(dataDir, 0o500);
+  try {
+    assert.equal((await phoneConfirm(a.pair.pairing_id, a.sid)).statusCode, 500);
+    assert.equal((await poll(a.pair.pairing_id, a.pair.poll_secret)).statusCode, 500);
+  } finally {
+    await chmod(dataDir, 0o700);
+  }
+  const r = (await poll(a.pair.pairing_id, a.pair.poll_secret)).json();
+  assert.equal(r.status, "complete");
+  assert.ok(devices.get(r.device.device_id));
+});
+
 test("store write failure: unpair returns 500, record retained in memory and on disk, retry succeeds", async () => {
   const { bearer, device } = await fullPair();
   const dataDir = path.join(dir, "data");
