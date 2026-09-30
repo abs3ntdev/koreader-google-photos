@@ -1,15 +1,22 @@
 # Deploying the broker with Docker (Unraid)
 
-No image is published to a registry. You build it yourself from `service/` and run it
-on your server. It has been built and run locally with Docker. It has **not** been
-tested on a real Unraid host or against live Google OAuth.
+GitHub Actions builds the image and publishes it to GHCR as
+`ghcr.io/abs3ntdev/koreader-google-photos`, for linux/amd64 and linux/arm64. See
+[RELEASING.md](RELEASING.md) for how releases are cut. You can also build it yourself
+from `service/`. The image has been built and run locally with Docker. It has **not**
+been tested on a real Unraid host or against live Google OAuth.
+
+Image tags:
+- `:X.Y.Z` and `:X.Y`: releases from `vX.Y.Z` git tags. Pin one of these for stability.
+- `:latest` and `:edge`: the newest `main` build.
+- `:sha-<short>`: a specific commit.
 
 ## Contract
 
 | Item | Value |
 |---|---|
 | Build context | `service/` (`service/Dockerfile`) |
-| Local tag | `koreader-google-photos-broker:local` |
+| Image | `ghcr.io/abs3ntdev/koreader-google-photos:<tag>`, or a local build tagged `koreader-google-photos-broker:local` |
 | Base | `node:24.21.0-alpine3.24`, pinned by digest. Runs the TypeScript sources directly on Node 24, with production dependencies only (`npm ci --omit=dev`) |
 | User | `99:100` (Unraid `nobody:users`). You can override it with `--user UID:GID` |
 | Listen | `HOST=0.0.0.0`, `PORT=8787`, plain HTTP |
@@ -38,11 +45,14 @@ refuses to start. To use a different UID:GID, change both the `--user` value and
 that directory. Do not run Unraid's "New Permissions" tool on this share, because it would
 make the data directory group-accessible.
 
-## Build / import on Unraid
+## Get the image
 
-On the Unraid host, if it has git:
+Default: pull `ghcr.io/abs3ntdev/koreader-google-photos:<tag>`. The template and compose file
+already reference it.
+
+Alternative, local build on the Unraid host (if it has git):
 ```sh
-git clone <this repo> /mnt/user/appdata/kgp-src && cd /mnt/user/appdata/kgp-src
+git clone https://github.com/abs3ntdev/koreader-google-photos /mnt/user/appdata/kgp-src && cd /mnt/user/appdata/kgp-src
 docker build -t koreader-google-photos-broker:local service/
 ```
 Or build on another machine and copy the image over:
@@ -52,7 +62,9 @@ docker save koreader-google-photos-broker:local | gzip > kgp-broker.tar.gz
 # copy to Unraid, then:
 docker load < kgp-broker.tar.gz
 ```
-To pick up base image security updates, rebuild with an updated digest in `NODE_IMAGE`.
+If you use a local build, set the template's Repository (or `KGP_IMAGE` for compose) to
+`koreader-google-photos-broker:local`. To pick up base image security updates, rebuild with
+an updated digest in `NODE_IMAGE`, or pull a newer GHCR release.
 
 ## Option A: Unraid template
 
@@ -66,8 +78,11 @@ To pick up base image security updates, rebuild with an updated digest in `NODE_
 
 ```sh
 cp deploy/broker.env.example deploy/broker.env && chmod 600 deploy/broker.env   # fill in
-docker compose -f deploy/docker-compose.yml up -d --build
+docker compose -f deploy/docker-compose.yml pull && docker compose -f deploy/docker-compose.yml up -d
+# local build instead:
+# KGP_IMAGE=koreader-google-photos-broker:local docker compose -f deploy/docker-compose.yml up -d --build
 ```
+`KGP_IMAGE` sets the image (default `ghcr.io/abs3ntdev/koreader-google-photos:latest`. Pin a version tag).
 `KGP_APPDATA` sets the host data directory (default `/mnt/user/appdata/kgp-broker`).
 `KGP_BIND` sets the published address (default `127.0.0.1`). Set it to the LAN IP if your
 proxy runs on another host.

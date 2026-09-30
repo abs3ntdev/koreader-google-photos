@@ -99,7 +99,7 @@ photos-pair.example.com {
 
 ### Docker / Unraid
 
-For container deployment (the image is built locally, and nothing is published to a registry), see [docs/DEPLOY.md](docs/DEPLOY.md). It includes `service/Dockerfile`, `deploy/docker-compose.yml`, and an Unraid template at `deploy/unraid/kgp-broker.xml`. The container runs as `99:100`, listens on `0.0.0.0:8787` inside the container, and stores data under the bind-mounted `/config`, which must be owned by `99:100` with mode 700.
+For container deployment, see [docs/DEPLOY.md](docs/DEPLOY.md). The image is published to `ghcr.io/abs3ntdev/koreader-google-photos` by GitHub Actions, and you can also build it locally. [docs/RELEASING.md](docs/RELEASING.md) covers tags and releases. The packaging consists of `service/Dockerfile`, `deploy/docker-compose.yml`, and an Unraid template at `deploy/unraid/kgp-broker.xml`. The container runs as `99:100`, listens on `0.0.0.0:8787` inside the container, and stores data under the bind-mounted `/config`, which must be owned by `99:100` with mode 700.
 
 ## Installing the plugin
 

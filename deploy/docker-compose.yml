@@ -1,5 +1,6 @@
-# Single-replica broker. Build locally (no public image is published):
-#   docker compose -f deploy/docker-compose.yml build
+# Single-replica broker. Uses the GHCR image built by GitHub Actions.
+# Pin a version with KGP_IMAGE=ghcr.io/abs3ntdev/koreader-google-photos:1.2.3
+# Local build instead: KGP_IMAGE=koreader-google-photos-broker:local docker compose -f deploy/docker-compose.yml up -d --build
 # Prepare appdata once (owned by the runtime UID:GID, private):
 #   mkdir -p /mnt/user/appdata/kgp-broker && chown 99:100 /mnt/user/appdata/kgp-broker && chmod 700 /mnt/user/appdata/kgp-broker
 # Then: cp deploy/broker.env.example deploy/broker.env, fill it in, chmod 600, and
@@ -9,7 +10,7 @@ services:
   broker:
     build:
       context: ../service
-    image: koreader-google-photos-broker:local
+    image: ${KGP_IMAGE:-ghcr.io/abs3ntdev/koreader-google-photos:latest}
     container_name: kgp-broker
     user: "99:100"
     restart: unless-stopped

@@ -1,21 +1,21 @@
 <?xml version="1.0"?>
 <!-- Unraid user template. Copy to /boot/config/plugins/dockerMan/templates-user/my-kgp-broker.xml
-     The image is NOT on a public registry: build/import it on the server first as
-     koreader-google-photos-broker:local (see docs/DEPLOY.md). -->
+     Default image is the GHCR build from GitHub Actions. Pin a version tag (e.g. :1.2.3) for
+     stability, or set Repository to koreader-google-photos-broker:local for a local build (docs/DEPLOY.md). -->
 <Container version="2">
   <Name>kgp-broker</Name>
-  <Repository>koreader-google-photos-broker:local</Repository>
-  <Registry/>
+  <Repository>ghcr.io/abs3ntdev/koreader-google-photos:latest</Repository>
+  <Registry>https://github.com/abs3ntdev/koreader-google-photos/pkgs/container/koreader-google-photos</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support/>
-  <Project/>
+  <Support>https://github.com/abs3ntdev/koreader-google-photos/issues</Support>
+  <Project>https://github.com/abs3ntdev/koreader-google-photos</Project>
   <Overview>KOReader Google Photos pairing broker. Must sit behind an HTTPS reverse proxy. Runs as 99:100; appdata dir must be owned by 99:100 and mode 700.</Overview>
   <Category>Tools:</Category>
   <WebUI/>
-  <TemplateURL/>
+  <TemplateURL>https://raw.githubusercontent.com/abs3ntdev/koreader-google-photos/main/deploy/unraid/kgp-broker.xml</TemplateURL>
   <Icon/>
   <ExtraParams>--user 99:100 --restart unless-stopped --read-only --tmpfs /tmp --security-opt no-new-privileges:true --cap-drop ALL</ExtraParams>
   <PostArgs/>
