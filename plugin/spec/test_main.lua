@@ -25,6 +25,7 @@ local function last_info()
     for i = #shown, 1, -1 do if shown[i].kind == "info" then return shown[i].text end end
 end
 
+FS = {}
 local data = T.tmpdir()
 local mocks = {
     datastorage = { getSettingsDir = function() return data end, getFullDataDir = function() return data end,
@@ -35,14 +36,20 @@ local mocks = {
     ["ui/widget/inputdialog"] = { new = widget("input") },
     ["ui/network/manager"] = { runWhenOnline = function(_, cb) online_queue[#online_queue + 1] = cb end },
     ["ui/uimanager"] = UIManager,
-    device = { screen = { shot = function(_, name) return not name:find("FAIL"), "EIO" end } },
+    -- Released fb:shot returns nothing; a write creates/overwrites the file.
+    device = { screen = { shot = function(_, name)
+        if name:find("RETFALSE") then return false, "EIO" end
+        if not name:find("FAIL") then
+            FS[name] = { mode = "file", size = 10, modification = (FS[name] and FS[name].modification or 0) + 1 }
+        end
+    end } },
     ["ui/widget/container/widgetcontainer"] = { extend = function(_, cls)
         cls.__index = cls
         cls.new = function(c, o) o = setmetatable(o or {}, c); if o.init then o:init() end; return o end
         return cls
     end },
     ["libs/libkoreader-lfs"] = { attributes = function() return "directory" end, mkdir = function() return true end,
-        symlinkattributes = function() return nil end },
+        symlinkattributes = function(p) return FS[p] end },
     logger = { warn = function() end },
     gettext = setmetatable({}, { __call = function(_, s) return s end }),
     ["ffi/util"] = { template = function(s, ...)
@@ -157,8 +164,7 @@ local function screenshoter()
     local S = {}
     S.__index = S
     function S:onScreenshot(name)
-        local ok = Screen:shot(name)
-        if not ok then return false end
+        Screen:shot(name) -- released Screenshoter does not check the result
         local d = ButtonDialog:new{ buttons = {{{ text = "Delete" }, { text = "Set as book cover" }}, {{ text = "View" }}},
             tap_close_callback = function() end }
         d.onClose = function() d.closed = true end
@@ -205,8 +211,11 @@ T.test("screenshot: failed capture and unrelated dialogs are untouched; hooks re
     local shot = screenshoter()
     local p = new_plugin({ screenshot = shot })
     local orig_shot, orig_new = Screen.shot, ButtonDialog.new
-    T.eq(shot:onScreenshot("/shots/FAIL.png"), false)
-    T.eq(#shown, 0)
+    FS["/shots/FAIL_stale.png"] = { mode = "file", size = 5, modification = 1 }
+    for _, name in ipairs({ "/shots/FAIL.png", "/shots/FAIL_stale.png", "/shots/RETFALSE.png" }) do
+        shot:onScreenshot(name)
+        T.eq(upload_row(shown[#shown]), nil, name .. ": silent/explicit failure or stale file must not get a button")
+    end
     T.eq(Screen.shot, orig_shot); T.eq(ButtonDialog.new, orig_new)
     p:resolveUncertain() -- unrelated ButtonDialog outside a screenshot
     local other = ButtonDialog:new{ buttons = {{{ text = "x" }}}, tap_close_callback = function() end }

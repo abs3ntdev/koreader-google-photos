@@ -96,8 +96,20 @@ function GooglePhotos:_screenshotWrapped(orig, shot, ...)
     local had_new, old_new = rawget(ButtonDialog, "new") ~= nil, rawget(ButtonDialog, "new")
     local real_new = ButtonDialog.new
     Screen.shot = function(scr, name, ...)
+        -- Released KOReader (fb:shot in ffi/framebuffer.lua) returns nothing,
+        -- even when lodepng fails, so the return value alone cannot prove
+        -- success. Accept only: no explicit false, and the path is now a
+        -- regular non-empty file that is new or changed (size/mtime) since
+        -- just before the call. A stale pre-existing file is never accepted.
+        local before = type(name) == "string" and lfs.symlinkattributes(name) or nil
         local r = pack(real_shot(scr, name, ...))
-        if r[1] and type(name) == "string" then captured = name end
+        if r[1] ~= false and type(name) == "string" then
+            local a = lfs.symlinkattributes(name)
+            if a and a.mode == "file" and (a.size or 0) > 0 and (not before
+                    or before.size ~= a.size or before.modification ~= a.modification) then
+                captured = name
+            end
+        end
         return unpack(r, 1, r.n)
     end
     ButtonDialog.new = function(cls, o, ...)
