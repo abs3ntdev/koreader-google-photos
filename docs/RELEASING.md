@@ -13,8 +13,8 @@ Only `GITHUB_TOKEN` is used. No personal or Google credentials are stored in CI.
 
 | Event | Tags |
 | --- | --- |
-| push to `main` | `edge`, `sha-<short>` |
-| tag `vX.Y.Z` | `X.Y.Z`, `X.Y`, `sha-<short>`, `latest` (only if no `-` prerelease suffix) |
+| push to `main` | `latest`, `edge`, `sha-<short>` |
+| tag `vX.Y.Z` | `X.Y.Z`, `X.Y`, `sha-<short>` (`X.Y` only for non-prerelease) |
 
 ## Cutting a release
 
@@ -30,3 +30,5 @@ The first push creates a private package. Make it public once: GitHub profile > 
 ## Updating pinned actions
 
 Actions are pinned to full commit SHAs with the tag in a comment. Resolve a new SHA with `gh api repos/<owner>/<repo>/commits/<tag> -q .sha`.
+
+`latest` tracks the default branch `main`, so Unraid users on `:latest` follow main. Pin `:0.1.0` for a fixed version. The image carries `org.opencontainers.image.source=https://github.com/abs3ntdev/koreader-google-photos` (set by `docker/metadata-action`), which links the GHCR package to the repository.
