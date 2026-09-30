@@ -16,6 +16,7 @@ local DataStorage = require("datastorage")
 local InfoMessage = require("ui/widget/infomessage")
 local ConfirmBox = require("ui/widget/confirmbox")
 local ButtonDialog = require("ui/widget/buttondialog")
+local Screenshoter = require("ui/widget/screenshoter")
 local InputDialog = require("ui/widget/inputdialog")
 local NetworkMgr = require("ui/network/manager")
 local UIManager = require("ui/uimanager")
@@ -50,39 +51,59 @@ end
 
 -- Screenshot dialog integration ---------------------------------------------
 -- Upstream Screenshoter:onScreenshot (frontend/ui/widget/screenshoter.lua)
--- builds its ButtonDialog inline and emits no event. We wrap the handler on
--- THIS ui's Screenshoter instance only (never the class) and, only for the
--- synchronous duration of that call, observe Screen:shot (to learn the exact
--- path that was written) and ButtonDialog.new (to append one extra row).
--- Both are restored before returning, even on error.
+-- builds its ButtonDialog inline and emits no event. Bookshelf also creates
+-- independent Screenshoter instances with ui={}, so wrap the shared handlers
+-- while a plugin owner is alive, not just self.ui.screenshot. Prefer the
+-- matching UI's owner, otherwise the newest live owner. Only during the
+-- synchronous capture do we observe Screen:shot, PNG encoding and dialog
+-- construction. Those observers are restored before returning, even on error.
 local SHOT_HANDLERS = { "onScreenshot", "onKeyPressShoot", "onTapDiagonal", "onSwipeDiagonal" }
+local screenshot_owners, screenshot_hooks = {}, {}
 
 function GooglePhotos:hookScreenshoter()
-    local shot = self.ui and self.ui.screenshot
-    if type(shot) ~= "table" then return end
-    shot._gphotos_owner = self -- newest plugin instance for this ui wins
-    if shot._gphotos_hooked then return end
-    shot._gphotos_hooked = true
+    if self._closed then return end
+    for _, owner in ipairs(screenshot_owners) do
+        if owner == self then return end
+    end
+    for i = #screenshot_owners, 1, -1 do
+        if screenshot_owners[i].ui == self.ui then table.remove(screenshot_owners, i) end
+    end
+    screenshot_owners[#screenshot_owners + 1] = self
+    if next(screenshot_hooks) then return end
     for _, name in ipairs(SHOT_HANDLERS) do
-        local orig = shot[name]
+        local orig = Screenshoter[name]
         if type(orig) == "function" then
-            shot[name] = function(s, ...)
-                local owner = rawget(s, "_gphotos_owner")
+            local wrapped = function(s, ...)
+                local owner
+                for i = #screenshot_owners, 1, -1 do
+                    local candidate = screenshot_owners[i]
+                    if not candidate._closed then
+                        owner = owner or candidate
+                        if candidate.ui == s.ui then owner = candidate; break end
+                    end
+                end
                 if not owner then return orig(s, ...) end
                 return owner:_screenshotWrapped(orig, s, ...)
             end
+            screenshot_hooks[name] = { original = rawget(Screenshoter, name), wrapped = wrapped }
+            Screenshoter[name] = wrapped
         end
     end
 end
 
--- Idempotent re-check in case ui.screenshot was attached after plugin init.
+-- Idempotent lifecycle re-check; also supports UIs without a screenshot module.
 function GooglePhotos:onReaderReady() self:hookScreenshoter() end
 
 function GooglePhotos:onCloseWidget()
     self._closed = true
-    local shot = self.ui and self.ui.screenshot
-    if type(shot) == "table" and rawget(shot, "_gphotos_owner") == self then
-        shot._gphotos_owner = nil
+    for i = #screenshot_owners, 1, -1 do
+        if screenshot_owners[i] == self then table.remove(screenshot_owners, i) end
+    end
+    if #screenshot_owners == 0 then
+        for name, hook in pairs(screenshot_hooks) do
+            if Screenshoter[name] == hook.wrapped then Screenshoter[name] = hook.original end
+        end
+        screenshot_hooks = {}
     end
 end
 
@@ -135,6 +156,7 @@ function GooglePhotos:_screenshotWrapped(orig, shot, ...)
             table.insert(o.buttons, {{
                 text = _("Upload to Google Photos"),
                 callback = function()
+                    if self._closed then return end
                     if dialog and dialog.onClose then dialog:onClose() end
                     self:uploadFile(path)
                 end,

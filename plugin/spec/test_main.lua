@@ -66,14 +66,44 @@ local settings_data = {}
 _G.G_reader_settings = { readSetting = function(_, k) return settings_data[k] end,
     saveSetting = function(_, k, v) settings_data[k] = v end }
 
+local Screenshoter = {}
+Screenshoter.__index = Screenshoter
+function Screenshoter:new(o) return setmetatable(o or {}, self) end
+function Screenshoter:onScreenshot(name)
+    mocks.device.screen:shot(name) -- released Screenshoter discards the result
+    local d = mocks["ui/widget/buttondialog"]:new{
+        buttons = {{{ text = "Delete" }, { text = "Set as book cover" }}, {{ text = "View" }}},
+        tap_close_callback = function() end,
+    }
+    d.onClose = function() d.closed = true end
+    UIManager:show(d)
+    return true
+end
+Screenshoter.onKeyPressShoot = Screenshoter.onScreenshot
+Screenshoter.onTapDiagonal = Screenshoter.onScreenshot
+Screenshoter.onSwipeDiagonal = Screenshoter.onScreenshot
+package.preload["ui/widget/screenshoter"] = function() return Screenshoter end
+
 local GooglePhotos = dofile((arg[0]:match("^(.*)/spec/run%.lua$") or "plugin") .. "/googlephotos.koplugin/main.lua")
+
+local active_plugins = {}
+local function test(name, fn)
+    T.test(name, function()
+        local ok, err = pcall(fn)
+        for _, p in ipairs(active_plugins) do p:onCloseWidget() end
+        active_plugins = {}
+        if not ok then error(err, 0) end
+    end)
+end
 
 local function new_plugin(ui)
     shown, scheduled, online_queue = {}, {}, {}
     local registered
     ui = ui or {}
     ui.menu = { registerToMainMenu = function(_, w) registered = w end }
+    if ui.screenshot then ui.screenshot.ui = ui end
     local p = GooglePhotos:new{ ui = ui }
+    active_plugins[#active_plugins + 1] = p
     return p, registered
 end
 
@@ -84,7 +114,7 @@ local function find_item(items, text)
     end
 end
 
-T.test("main: registers Tools > Google Photos menu with expected entries", function()
+test("main: registers Tools > Google Photos menu with expected entries", function()
     local p, registered = new_plugin()
     T.eq(registered, p)
     local menu = {}
@@ -104,7 +134,7 @@ local function fake_job(steps)
     return j
 end
 
-T.test("main: queued online callbacks start only one job; progress refresh does not cancel", function()
+test("main: queued online callbacks start only one job; progress refresh does not cancel", function()
     local p = new_plugin()
     local job = fake_job(3)
     p.app = { newUploadJob = function() return job end,
@@ -121,7 +151,7 @@ T.test("main: queued online callbacks start only one job; progress refresh does 
     T.eq(p.job, nil)
 end)
 
-T.test("main: user dismissing progress stops job; actions blocked while running", function()
+test("main: user dismissing progress stops job; actions blocked while running", function()
     local p = new_plugin()
     local job = fake_job(100)
     p.app = { newUploadJob = function() return job end, summarize = function(_, _, r) return "END " .. r end,
@@ -140,7 +170,7 @@ T.test("main: user dismissing progress stops job; actions blocked while running"
     T.eq(p.job, nil)
 end)
 
-T.test("main: resolve uncertain surfaces save failure", function()
+test("main: resolve uncertain surfaces save failure", function()
     local p = new_plugin()
     p.app = { uncertainCount = function() return 2 end,
         resolveUncertain = function() return nil, "EIO" end }
@@ -151,7 +181,7 @@ T.test("main: resolve uncertain surfaces save failure", function()
     T.ok(last_info():find("Could not save: EIO"))
 end)
 
-T.test("main: upload job creation error is shown, nothing queued", function()
+test("main: upload job creation error is shown, nothing queued", function()
     local p = new_plugin()
     p.app = { newUploadJob = function() return nil, "not linked" end }
     p:uploadFolder("/x")
@@ -165,20 +195,7 @@ end)
 local ButtonDialog = mocks["ui/widget/buttondialog"]
 local Screen = mocks.device.screen
 local function screenshoter()
-    local S = {}
-    S.__index = S
-    function S:onScreenshot(name)
-        Screen:shot(name) -- released Screenshoter does not check the result
-        local d = ButtonDialog:new{ buttons = {{{ text = "Delete" }, { text = "Set as book cover" }}, {{ text = "View" }}},
-            tap_close_callback = function() end }
-        d.onClose = function() d.closed = true end
-        UIManager:show(d)
-        return true
-    end
-    S.onKeyPressShoot = S.onScreenshot
-    S.onTapDiagonal = S.onScreenshot
-    S.onSwipeDiagonal = S.onScreenshot
-    return setmetatable({}, S)
+    return Screenshoter:new{ ui = {} }
 end
 local function upload_row(d)
     for _, row in ipairs(d.buttons) do
@@ -191,7 +208,7 @@ local function linked_app(job_for)
         newUploadFileJob = function(_, path) calls[#calls + 1] = path; return job_for(path) end }, calls
 end
 
-T.test("screenshot: dialog gets one upload row; tap uploads exactly that file after wifi", function()
+test("screenshot: dialog gets one upload row; tap uploads exactly that file after wifi", function()
     local shot = screenshoter()
     local p = new_plugin({ screenshot = shot })
     local job = fake_job(3)
@@ -211,7 +228,48 @@ T.test("screenshot: dialog gets one upload row; tap uploads exactly that file af
     T.eq(rawget(ButtonDialog, "new") ~= nil, true)
 end)
 
-T.test("screenshot: failed capture and unrelated dialogs are untouched; hooks restored", function()
+test("screenshot: standalone instances share live owners across reader transitions", function()
+    local originals = {}
+    for _, name in ipairs({ "onScreenshot", "onKeyPressShoot", "onTapDiagonal", "onSwipeDiagonal" }) do
+        originals[name] = Screenshoter[name]
+    end
+    local home = { screenshot = screenshoter() }
+    local p1 = new_plugin(home)
+    local home_job, reader_job = fake_job(1), fake_job(1)
+    local home_calls, reader_calls
+    p1.app, home_calls = linked_app(function() return home_job end)
+    local reader = { screenshot = screenshoter() }
+    local p2 = new_plugin(reader)
+    p2.app, reader_calls = linked_app(function() return reader_job end)
+    -- Installed Bookshelf constructs this independent ui={} Screenshoter.
+    for name in pairs(originals) do
+        local standalone = screenshoter()
+        standalone[name](standalone, "/shots/standalone-" .. name .. ".png")
+        T.eq(#shown[#shown].buttons, 3, "fresh instance has exactly one upload row")
+    end
+    T.eq(#online_queue, 0, "capture alone never uploads")
+    upload_row(shown[#shown]).callback()
+    T.eq(#reader_calls, 1, "standalone uses newest live owner")
+    home.screenshot:onScreenshot("/shots/home.png")
+    upload_row(shown[#shown]).callback()
+    T.eq(home_calls[1], "/shots/home.png", "stock UI retains its matching owner")
+    p2:onCloseWidget()
+    screenshoter():onScreenshot("/shots/back-home.png")
+    upload_row(shown[#shown]).callback()
+    T.eq(home_calls[2], "/shots/back-home.png", "reader close falls back to home owner")
+    local stale_button = upload_row(shown[#shown])
+    p1:onCloseWidget()
+    local queued = #online_queue
+    stale_button.callback()
+    T.eq(#online_queue, queued, "closed owner's dialog cannot queue uploads")
+    for name, original in pairs(originals) do
+        T.eq(Screenshoter[name], original, "last owner close restores shared class")
+    end
+    screenshoter():onScreenshot("/shots/disabled.png")
+    T.eq(upload_row(shown[#shown]), nil, "no active plugin means stock behavior")
+end)
+
+test("screenshot: failed capture and unrelated dialogs are untouched; hooks restored", function()
     local shot = screenshoter()
     local p = new_plugin({ screenshot = shot })
     local orig_shot, orig_new = Screen.shot, ButtonDialog.new
@@ -235,13 +293,15 @@ T.test("screenshot: failed capture and unrelated dialogs are untouched; hooks re
     T.eq(upload_row(other), nil)
 end)
 
-T.test("screenshot: reloading plugin does not double-wrap and routes to newest instance", function()
+test("screenshot: reloading plugin does not double-wrap and routes to newest instance", function()
     local shot = screenshoter()
     local ui = { screenshot = shot }
     local p1 = new_plugin(ui)
     local wrapped = shot.onScreenshot
     local p2 = new_plugin(ui)
     T.eq(shot.onScreenshot, wrapped, "wrapped once")
+    p2:onReaderReady()
+    p1:onCloseWidget() -- old UI teardown must not unregister its replacement
     local job = fake_job(1)
     p2.app = linked_app(function() return job end)
     p1.app = { isPaired = function() error("stale instance used") end }
@@ -255,7 +315,7 @@ T.test("screenshot: reloading plugin does not double-wrap and routes to newest i
     T.eq(#shown[#shown].buttons, 2, "no row once owner closed")
 end)
 
-T.test("screenshot: unlinked, busy and invalid-file taps queue nothing", function()
+test("screenshot: unlinked, busy and invalid-file taps queue nothing", function()
     local shot = screenshoter()
     local p = new_plugin({ screenshot = shot })
     p.app = { isPaired = function() return false end }
@@ -270,7 +330,7 @@ T.test("screenshot: unlinked, busy and invalid-file taps queue nothing", functio
     T.eq(#online_queue, 0)
 end)
 
-T.test("screenshot: stale online callback does not start a second job", function()
+test("screenshot: stale online callback does not start a second job", function()
     local shot = screenshoter()
     local p = new_plugin({ screenshot = shot })
     local j1, j2 = fake_job(2), fake_job(2)
@@ -284,7 +344,7 @@ T.test("screenshot: stale online callback does not start a second job", function
     T.eq(j1.n, 2); T.eq(j2.n, 0)
 end)
 
-T.test("screenshot: throwing screenshot handler still restores Screen.shot and ButtonDialog.new", function()
+test("screenshot: throwing screenshot handler still restores Screen.shot and ButtonDialog.new", function()
     local shot = screenshoter()
     new_plugin({ screenshot = shot })
     local orig_shot, orig_new = rawget(Screen, "shot"), rawget(ButtonDialog, "new")
@@ -300,7 +360,7 @@ T.test("screenshot: throwing screenshot handler still restores Screen.shot and B
     T.eq(mt.onScreenshot, keep)
 end)
 
-T.test("screenshot: queued WiFi callback does nothing after plugin closed", function()
+test("screenshot: queued WiFi callback does nothing after plugin closed", function()
     local shot = screenshoter()
     local p = new_plugin({ screenshot = shot })
     local job = fake_job(2)
