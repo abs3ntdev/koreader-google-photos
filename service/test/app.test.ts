@@ -19,12 +19,15 @@ interface TokenCall {
 }
 let calls: TokenCall[];
 let tokenResponder: (params: URLSearchParams) => { status: number; body: unknown };
+// When set, token-endpoint responses wait for this promise (to interleave requests).
+let tokenGate: Promise<void> | undefined;
 
-const fakeFetch: typeof fetch = async (input, init) => {
+const fakeFetch = async (input: string | URL | Request, init?: RequestInit) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
   const params = new URLSearchParams(String(init?.body ?? ""));
   calls.push({ url, params });
   if (url === "https://oauth2.googleapis.com/revoke") return new Response(null, { status: 200 });
+  if (tokenGate) await tokenGate;
   const { status, body } = tokenResponder(params);
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 };
@@ -47,6 +50,7 @@ let now: number;
 
 beforeEach(async () => {
   calls = [];
+  tokenGate = undefined;
   tokenResponder = okCodeExchange;
   dir = await mkdtemp(path.join(os.tmpdir(), "kgp-"));
   const config = loadConfig({
@@ -364,6 +368,58 @@ test("unpair deletes device, revokes at Google, credential stops working", async
   assert.equal((await readFile(path.join(dir, "data", "devices.json"), "utf8")).includes(device.device_id), false);
   const tok = await app.inject({ method: "POST", url: "/api/token", headers: { authorization: `Bearer ${bearer}` } });
   assert.equal(tok.statusCode, 401);
+});
+
+function holdTokenEndpoint(): () => void {
+  let release!: () => void;
+  tokenGate = new Promise((r) => (release = r));
+  return () => {
+    tokenGate = undefined;
+    release();
+  };
+}
+
+async function until(pred: () => boolean) {
+  for (let i = 0; i < 1000 && !pred(); i++) await new Promise((r) => setImmediate(r));
+  assert.ok(pred(), "condition not reached");
+}
+
+const tokenCalls = (grant: string) => calls.filter((c) => c.params.get("grant_type") === grant).length;
+
+test("race: pairing expires while code exchange is in flight -> nothing staged, new grant revoked", async () => {
+  const pair = await createPairing();
+  const page = await openPage(pair.pairing_id);
+  const start = await startOAuth(pair.pairing_id, page.sid!, page.csrf!);
+  const state = new URL(start.headers.location as string).searchParams.get("state")!;
+  const release = holdTokenEndpoint();
+  const cbPromise = callback(`code=c&state=${state}`, page.sid);
+  await until(() => tokenCalls("authorization_code") === 1);
+  now += 11 * 60 * 1000; // expire while Google has not answered yet
+  release();
+  const cb = await cbPromise;
+  assert.equal(cb.statusCode, 410);
+  const revoke = calls.find((c) => c.url.endsWith("/revoke"));
+  assert.equal(revoke?.params.get("token"), RT, "late refresh token revoked");
+  assert.equal((await poll(pair.pairing_id, pair.poll_secret)).statusCode, 410);
+});
+
+test("race: unpair during in-flight refresh -> no access token returned, device not resurrected", async () => {
+  const { bearer, device } = await fullPair();
+  tokenResponder = () => ({
+    status: 200,
+    body: { access_token: "ya29.late", token_type: "Bearer", expires_in: 3599, scope: APPENDONLY_SCOPE, refresh_token: "1//rotated" },
+  });
+  const release = holdTokenEndpoint();
+  const tokPromise = app.inject({ method: "POST", url: "/api/token", headers: { authorization: `Bearer ${bearer}` } });
+  await until(() => tokenCalls("refresh_token") === 1);
+  const del = await app.inject({ method: "DELETE", url: "/api/device", headers: { authorization: `Bearer ${bearer}` } });
+  assert.equal(del.statusCode, 204);
+  release();
+  const tok = await tokPromise;
+  assert.equal(tok.statusCode, 401);
+  assert.ok(!tok.body.includes("ya29.late"));
+  assert.equal(devices.get(device.device_id), undefined);
+  assert.ok(!(await readFile(path.join(dir, "data", "devices.json"), "utf8")).includes(device.device_id));
 });
 
 test("store write failure: unpair returns 500, record retained in memory and on disk, retry succeeds", async () => {
