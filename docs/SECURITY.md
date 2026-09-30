@@ -7,7 +7,7 @@
 | Google client secret | broker env only | never in the plugin, never logged |
 | Refresh token | broker data file, AES-256-GCM (AAD = device_id) | key from `TOKEN_ENCRYPTION_KEY` |
 | Poll secret (256-bit) | reader memory during pairing | only its SHA-256 is stored; never in QR/URL |
-| Device credential (256-bit) | reader settings | broker stores SHA-256 only |
+| Device credential (256-bit) | reader: plaintext JSON `settings/googlephotos/device.json` | broker stores SHA-256 only. chmod 0600 is attempted but has no effect on FAT/vfat storage, so it is readable by anyone with physical or USB access |
 | Access token (about 1 h) | reader memory | scope appendonly |
 | Browser session cookie | phone | `__Host-`, HttpOnly, Secure, SameSite=Lax |
 
@@ -22,12 +22,12 @@
 - **Races.** Status transitions are synchronous before each await (`exchanging`, `finalizing`). After an await, liveness is rechecked. A token from a late exchange is revoked. Device records created for a pairing that died are removed. Refresh never resurrects a deleted device.
 - **Storage.** Mutations are serialized: 0600 temp file, fsync, then rename. The rename is the commit point, after which memory is updated. Failures before the rename leave both memory and disk unchanged, and the client gets a 500 it can retry (for example, a failed unpair keeps the record). The directory fsync after the rename is best effort. If it fails, a warning is logged and crash durability of that last write is unknown, so use a filesystem that supports directory fsync (ext4, xfs, btrfs). The data dir must already be 0700 and owned by the service user. The service refuses to start otherwise and never chmods an existing directory.
 - **Logging.** The Fastify logger only records method, route pattern and status code.
-- **Transport.** The broker refuses non-HTTPS public URLs outside explicit loopback dev mode. The plugin enforces TLS peer and hostname verification itself, because KOReader's default LuaSec path uses `verify="none"`. See the plugin docs.
+- **Transport.** The broker refuses non-HTTPS public URLs outside explicit loopback dev mode. The plugin enforces TLS peer and hostname verification itself, because KOReader's default LuaSec path uses `verify="none"`. The plugin's own code (`plugin/googlephotos.koplugin/gphotos/tls.lua`, `http.lua`) does peer and hostname checks, sends no bearer tokens across redirects, and fails closed.
 - **Abuse.** Per-IP rate limits apply, with at most 1000 concurrent pairings, and bodies are capped.
 
 ## Residual risks
 
 - Anyone who compromises the broker host plus its env gets refresh tokens (append-only Photos access) for all paired accounts.
-- A stolen reader credential lets an attacker add media to the victim's library until the device is unpaired. It cannot read or delete anything.
+- A stolen reader credential (for example copied over USB from a FAT-formatted reader) lets an attacker add media to the victim's library until the device is unlinked. It cannot read or delete anything.
 - In-memory pairing state is lost on restart. Users just pair again.
 - Rate limits are per process and per IP. Behind a proxy, `TRUST_PROXY=1` is required and must be safe.

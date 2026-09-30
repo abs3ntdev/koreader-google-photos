@@ -114,6 +114,17 @@ Other menu items:
 - **Unlink this device**: deletes the device on the broker. Upload history is kept, and if the unlink fails the credential is kept so you can retry.
 - **Relink Google account**: appears in place of Link once paired.
 
+### How the plugin behaves (read before relying on it)
+
+- **Reader credential storage.** The device credential (`device_id` + `device_credential`) is stored in **plaintext JSON** at `<KOReader settings dir>/googlephotos/device.json`. The plugin attempts `chmod 0600`. Many e-readers keep this directory on a FAT/vfat or exFAT partition, where chmod has no effect. Anyone who reads the storage, for example by plugging the reader into a computer over USB or taking the SD card, can copy the credential. With it they can add media to your Google Photos (append-only: they cannot read or delete) until you run **Unlink this device**, which also works from any other broker client. Treat physical access to the reader as access to this credential.
+- **Folder scan.** Only the chosen folder itself is scanned, one level deep with no subfolders. Symlinks, hidden files, unsupported types and oversized files are skipped, and symlinks are never followed.
+- **File identity.** A file is identified by *path + size + modification time*. A renamed or edited file counts as new and is uploaded again. An untouched file is skipped once it is recorded as done.
+- **Manifest.** Each paired device has its own manifest, at `googlephotos/manifest-<device_id>.json`, plus its own app-created album. Re-linking creates a new device, a new manifest and a new album. It never silently reuses the old ones.
+- **Ambiguous creates.** Before sending `mediaItems:batchCreate`, the plugin writes the batch as `creating` to the manifest. If the connection drops, or KOReader restarts, before the result is recorded, those entries become **uncertain**. **Resolve uncertain uploads** lets you check the album on your phone and either mark them as done, or re-queue them (which may create duplicates). Exactly-once delivery is not promised.
+- **UI blocking.** Network calls are synchronous LuaSocket requests and **block the KOReader UI while each step runs**. The upload is split into steps, and control goes back to KOReader between steps via `UIManager:scheduleIn`, so you can tap to stop after the current file. The 30 s timeout applies to each socket operation, such as connect or a single read or write. It is not a limit on a whole request or step. A slow connection can therefore freeze the UI longer than 30 s. A single step can also make more than one request, for example fetching or refreshing an access token from the broker and retrying once after a rejected token.
+- **Wi-Fi.** Network use goes through KOReader's normal Wi-Fi prompt or turn-on behavior. The plugin never uploads in the background.
+- **No deletion.** Local files are never deleted or modified.
+
 ## Validation performed so far
 
 | Check | What it exercises | Real vs stubbed |
