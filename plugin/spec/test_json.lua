@@ -1,0 +1,15 @@
+local T = require("support")
+local json = require("gphotos/json")
+
+T.test("json: decodes objects, rejects trailing data and garbage", function()
+    local v = json.decode('{"a":[1,2],"b":"x\\u00e9"}')
+    T.eq(v.a[2], 2); T.eq(v.b, "x\195\169")
+    T.eq(json.decode('{"a":1} x'), nil)
+    T.eq(json.decode('{"a":'), nil)
+    T.eq(json.decode(nil), nil)
+    T.ok(json.decode('"a\127b"') == "a\127b", "DEL byte string terminates")
+end)
+
+T.test("json: empty array marker encodes as []", function()
+    T.eq(json.encode({ x = json.array({}) }), '{"x":[]}')
+end)
