@@ -178,7 +178,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }
     if (!pairings.isLive(p)) {
       // Pairing expired or was destroyed during the write: do not leave an orphan credential.
-      await devices.remove(deviceId);
+      await devices.remove(deviceId).catch(() => app.log.error({ kind: "store_write_failed" }, "orphan cleanup failed"));
       return;
     }
     p.staged = undefined;
@@ -240,15 +240,22 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       result = await oauth.refresh(devices.refreshToken(rec));
     } catch (e) {
       if (e instanceof OAuthError && (e.kind === "invalid_grant" || e.kind === "scope")) {
-        await devices.remove(rec.deviceId);
+        await devices.remove(rec.deviceId).catch(() => app.log.error({ kind: "store_write_failed" }, "remove failed"));
         return err(reply, 401, "reauth_required");
       }
       app.log.warn({ kind: "refresh_failed" }, "token refresh failed");
       return err(reply, 502, "upstream_error");
     }
     // Unpaired while refreshing: do not hand out a token or resurrect the record.
-    if (devices.get(rec.deviceId) !== rec) return err(reply, 401, "unauthorized");
-    if (result.rotatedRefreshToken) await devices.rotate(rec.deviceId, result.rotatedRefreshToken);
+    if (devices.get(rec.deviceId)?.credentialHash !== rec.credentialHash) return err(reply, 401, "unauthorized");
+    if (result.rotatedRefreshToken) {
+      try {
+        await devices.rotate(rec.deviceId, result.rotatedRefreshToken);
+      } catch {
+        app.log.error({ kind: "store_write_failed" }, "rotate failed");
+        return err(reply, 500, "internal");
+      }
+    }
     return reply.send({
       access_token: result.accessToken,
       expires_in: result.expiresIn,
@@ -261,7 +268,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const rec = await deviceAuth(req, reply);
     if (!rec) return reply;
     const rt = devices.refreshToken(rec);
-    await devices.remove(rec.deviceId);
+    try {
+      await devices.remove(rec.deviceId);
+    } catch {
+      // Record retained on disk and in memory: the client can retry the unpair.
+      app.log.error({ kind: "store_write_failed" }, "remove failed");
+      return err(reply, 500, "internal");
+    }
     await oauth.revoke(rt);
     return reply.code(204).send();
   });

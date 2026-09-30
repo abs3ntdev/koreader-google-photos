@@ -16,6 +16,8 @@ async function main() {
     throw e;
   }
   const devices = new DeviceStore(config.dataFile, config.encryptionKey);
+  devices.onDurabilityWarning = () =>
+    console.error("warning: data directory fsync failed; last device-store write may not survive a crash");
   await devices.load();
   const pairings = new PairingStore(config.pairingTtlMs);
   setInterval(() => pairings.sweep(), 30_000).unref();

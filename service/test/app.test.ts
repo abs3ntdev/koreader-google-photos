@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildApp } from "../src/app.ts";
@@ -364,6 +364,32 @@ test("unpair deletes device, revokes at Google, credential stops working", async
   assert.equal((await readFile(path.join(dir, "data", "devices.json"), "utf8")).includes(device.device_id), false);
   const tok = await app.inject({ method: "POST", url: "/api/token", headers: { authorization: `Bearer ${bearer}` } });
   assert.equal(tok.statusCode, 401);
+});
+
+test("store write failure: unpair returns 500, record retained in memory and on disk, retry succeeds", async () => {
+  const { bearer, device } = await fullPair();
+  const dataDir = path.join(dir, "data");
+  await chmod(dataDir, 0o500); // make temp-file creation fail
+  try {
+    const del = await app.inject({ method: "DELETE", url: "/api/device", headers: { authorization: `Bearer ${bearer}` } });
+    assert.equal(del.statusCode, 500);
+    assert.ok(devices.get(device.device_id), "memory unchanged");
+    assert.ok((await readFile(path.join(dataDir, "devices.json"), "utf8")).includes(device.device_id), "disk unchanged");
+    assert.equal(calls.some((c) => c.url.endsWith("/revoke")), false, "no revoke before durable delete");
+  } finally {
+    await chmod(dataDir, 0o700);
+  }
+  const retry = await app.inject({ method: "DELETE", url: "/api/device", headers: { authorization: `Bearer ${bearer}` } });
+  assert.equal(retry.statusCode, 204);
+});
+
+test("store refuses a group/world accessible data directory instead of chmod-ing it", async () => {
+  const shared = path.join(dir, "shared");
+  await mkdir(shared, { mode: 0o755 });
+  await chmod(shared, 0o755);
+  const s = new DeviceStore(path.join(shared, "devices.json"), Buffer.alloc(32));
+  await assert.rejects(() => s.load(), /group\/world/);
+  assert.equal((await stat(shared)).mode & 0o777, 0o755);
 });
 
 test("security headers and body limit", async () => {
