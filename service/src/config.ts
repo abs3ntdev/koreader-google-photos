@@ -38,8 +38,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       );
     }
   }
-  if (publicBaseUrl.pathname !== "/" || publicBaseUrl.search || publicBaseUrl.hash) {
-    throw new ConfigError("PUBLIC_BASE_URL must be an origin without path, query or fragment");
+  if (publicBaseUrl.pathname !== "/" || publicBaseUrl.search || publicBaseUrl.hash || publicBaseUrl.username || publicBaseUrl.password) {
+    throw new ConfigError("PUBLIC_BASE_URL must be an origin without credentials, path, query or fragment");
   }
   const keyB64 = required(env, "TOKEN_ENCRYPTION_KEY");
   const encryptionKey = Buffer.from(keyB64, "base64");

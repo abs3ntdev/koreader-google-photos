@@ -293,11 +293,13 @@ test("callback: state replay rejected, wrong browser rejected, unknown state rej
   assert.equal((await callback("code=x&state=unknown")).statusCode, 400);
 });
 
-test("callback: missing appendonly scope or refresh token fails closed", async () => {
-  tokenResponder = () => ({ status: 200, body: { access_token: "a", token_type: "Bearer", expires_in: 10, scope: "openid", refresh_token: "r" } });
-  const a = await authorize();
-  assert.equal(a.cb.statusCode, 400);
-  assert.equal((await poll(a.pair.pairing_id, a.pair.poll_secret)).statusCode, 401);
+test("callback: granted scope must be exactly appendonly; missing refresh token fails closed", async () => {
+  for (const scope of ["openid", `${APPENDONLY_SCOPE} https://www.googleapis.com/auth/photoslibrary.readonly`]) {
+    tokenResponder = () => ({ status: 200, body: { access_token: "a", token_type: "Bearer", expires_in: 10, scope, refresh_token: "r" } });
+    const a = await authorize();
+    assert.equal(a.cb.statusCode, 400, scope);
+    assert.equal((await poll(a.pair.pairing_id, a.pair.poll_secret)).statusCode, 401);
+  }
 
   tokenResponder = () => ({ status: 200, body: { access_token: "a", token_type: "Bearer", expires_in: 10, scope: APPENDONLY_SCOPE } });
   const b = await authorize();
@@ -356,6 +358,18 @@ test("token endpoint: bad credential 401, invalid_grant deletes device and repor
   tokenResponder = okCodeExchange;
   const after = await app.inject({ method: "POST", url: "/api/token", headers: { authorization: `Bearer ${bearer}` } });
   assert.equal(after.json().error, "unauthorized");
+});
+
+test("token endpoint: refresh granting extra scopes is refused (no token, device requires re-pair)", async () => {
+  const { bearer, device } = await fullPair();
+  tokenResponder = () => ({
+    status: 200,
+    body: { access_token: "ya29.wide", token_type: "Bearer", expires_in: 3599, scope: `${APPENDONLY_SCOPE} https://www.googleapis.com/auth/photoslibrary` },
+  });
+  const r = await app.inject({ method: "POST", url: "/api/token", headers: { authorization: `Bearer ${bearer}` } });
+  assert.equal(r.statusCode, 401);
+  assert.ok(!r.body.includes("ya29.wide"));
+  assert.equal(devices.get(device.device_id), undefined);
 });
 
 test("unpair deletes device, revokes at Google, credential stops working", async () => {
@@ -471,6 +485,7 @@ test("config refuses non-https public URL outside explicit loopback dev mode", (
   assert.throws(() => loadConfig({ ...base, PUBLIC_BASE_URL: "http://pair.example.com" }));
   assert.throws(() => loadConfig({ ...base, PUBLIC_BASE_URL: "http://localhost:8787" }));
   assert.throws(() => loadConfig({ ...base, PUBLIC_BASE_URL: "https://x.example", TOKEN_ENCRYPTION_KEY: "short" }));
+  assert.throws(() => loadConfig({ ...base, PUBLIC_BASE_URL: "https://user:pw@x.example" }), /credentials/);
   const dev = loadConfig({ ...base, PUBLIC_BASE_URL: "http://localhost:8787", ALLOW_INSECURE_LOOPBACK: "1" });
   assert.equal(dev.redirectUri, "http://localhost:8787/oauth/callback");
 });

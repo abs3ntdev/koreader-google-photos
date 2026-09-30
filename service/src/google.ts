@@ -84,7 +84,7 @@ export class GoogleOAuth {
       throw classify(e);
     }
     const scope = tokens.scope ?? "";
-    if (!scope.split(" ").includes(APPENDONLY_SCOPE)) {
+    if (!isExactlyAppendOnly(scope)) {
       throw new OAuthError("scope", "appendonly scope not granted");
     }
     if (!tokens.refresh_token) throw new OAuthError("no_refresh_token", "no refresh token returned");
@@ -99,7 +99,7 @@ export class GoogleOAuth {
       throw classify(e);
     }
     const scope = t.scope ?? APPENDONLY_SCOPE;
-    if (!scope.split(" ").includes(APPENDONLY_SCOPE)) throw new OAuthError("scope", "appendonly scope missing");
+    if (!isExactlyAppendOnly(scope)) throw new OAuthError("scope", "appendonly scope missing");
     return {
       accessToken: t.access_token,
       expiresIn: typeof t.expires_in === "number" ? t.expires_in : 3600,
@@ -115,6 +115,12 @@ export class GoogleOAuth {
       // best effort; the local record is deleted regardless
     }
   }
+}
+
+/** Least privilege: the granted set must be exactly {appendonly}, no extras. */
+function isExactlyAppendOnly(scope: string): boolean {
+  const set = new Set(scope.split(/\s+/).filter(Boolean));
+  return set.size === 1 && set.has(APPENDONLY_SCOPE);
 }
 
 function classify(e: unknown): OAuthError {
