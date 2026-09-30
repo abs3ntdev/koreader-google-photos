@@ -127,6 +127,10 @@ Other menu items:
 
 ## Validation performed so far
 
+See [the acceptance record](docs/ACCEPTANCE.md) for the actual production startup
+attempt, observed local results, artifact digest, and external prerequisites that
+still block the live phone-to-reader-to-Google workflow.
+
 | Check | What it exercises | Real vs stubbed |
 |---|---|---|
 | `cd service && npm run check`: typecheck + 22 tests | All broker routes in-process: pairing, CSRF, state/PKCE, claimant binding, dual confirmation, re-delivery until ack, expiry, replay, exact scope, refresh errors, unpair, store failure with finalize retry via poll, and races (expiry during code exchange, unpair during refresh) | Real routes and real openid-client. **Google's token endpoints are a fake injected fetch** |
