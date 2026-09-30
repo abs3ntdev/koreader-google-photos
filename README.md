@@ -25,7 +25,7 @@ We chose Google's [web-server OAuth flow](https://developers.google.com/identity
 
 ## Pairing flow (summary)
 
-1. On the reader: Tools → Google Photos → Pair. The plugin calls `POST /api/pairings`. It gets a public `pair_url` and a private 256-bit `poll_secret`. Only the `pair_url` goes into the QR code.
+1. On the reader: Tools → Google Photos → **Link Google account**. The plugin calls `POST /api/pairings`. It gets a public `pair_url` and a private 256-bit `poll_secret`. Only the `pair_url` goes into the QR code.
 2. Scan the QR with your phone. The page has no side effects until you press **Sign in with Google**. That POST is CSRF-protected and claims the pairing for this phone browser only.
 3. Google sign-in uses `state` + PKCE S256, `access_type=offline` and scope `photoslibrary.appendonly` only. The callback checks the state (single use), the browser cookie and the granted scope, then stages the tokens.
 4. The phone and the reader both show the same 6-digit code. Only the browser that signed in sees the code. Confirm on **both**. Nothing is released until both have confirmed.
@@ -68,7 +68,7 @@ set -a; . ./.env; set +a
 npm start
 ```
 
-For local end-to-end tests, your phone cannot reach `localhost`. Complete the Google sign-in in a desktop browser at the pair URL instead. The reader (or the KOReader emulator) must also be able to reach the broker. Whether the plugin accepts a non-HTTPS loopback broker is described in the plugin section below. Otherwise use a real HTTPS deployment.
+For local end-to-end tests, your phone cannot reach `localhost`. Complete the Google sign-in in a desktop browser at the pair URL instead. The reader (or the KOReader emulator) must also be able to reach the broker. The plugin accepts **only `https://` broker URLs**, with no loopback exception, so a plain-HTTP local broker cannot be paired from KOReader. For an end-to-end test from the reader, put the broker behind HTTPS with a certificate that the device's CA bundle trusts. Plain-HTTP local mode is for exercising the broker and phone pages only.
 
 Checks (the Makefile runs both suites):
 
@@ -100,10 +100,19 @@ photos-pair.example.com {
 ## Installing the plugin
 
 1. `make package`, then copy the `googlephotos.koplugin` folder from the zip into KOReader's `plugins/` directory on the device.
-2. Restart KOReader, then go to Tools → Google Photos → Settings → Broker URL. Enter your `https://` broker origin.
-3. Pair, choose a folder (the default is KOReader's screenshot directory), then **Upload new images**.
+2. Restart KOReader, then open Tools → Google Photos → **Broker server URL** and enter your `https://host[:port]` broker origin.
+3. Tap **Link Google account** and scan the QR code. Sign in on your phone, check that the reader and phone show the same code, then confirm on both (**Codes match** on the reader).
+4. Upload with either option:
+   - **Upload screenshots folder** uploads from KOReader's screenshot directory.
+   - **Upload a folder…** lets you pick any folder.
+   Both look at one folder level only (not recursive) and skip files that are already handled.
 
-See `plugin/googlephotos.koplugin/README` notes in the plugin's own docs for manifest, retry and uncertain-upload behavior.
+Other menu items:
+
+- **Resolve uncertain uploads**: for files where the connection dropped while Google was creating the item. Check the album, then mark them as uploaded or queue them again (which may duplicate).
+- **Status**: shows the current link and upload state.
+- **Unlink this device**: deletes the device on the broker. Upload history is kept, and if the unlink fails the credential is kept so you can retry.
+- **Relink Google account**: appears in place of Link once paired.
 
 ## Validation performed so far
 
@@ -121,18 +130,18 @@ See `plugin/googlephotos.koplugin/README` notes in the plugin's own docs for man
 None of this has been run against real Google or a real device yet. Run through it once after your first deployment:
 
 1. Create a real Google Cloud Web client (see [Google Cloud setup](#google-cloud-setup)) and deploy the broker over HTTPS. `https://<host>/healthz` should return `{"ok":true}`.
-2. Pair from the reader: scan the QR, sign in on your phone, and check that the **same 6-digit code** appears on the phone and the reader. Confirm on both.
-3. Put two disposable PNG/JPEG images in the upload folder and run **Upload new images**. Both should appear in the app-created album in Google Photos.
-4. Run **Upload new images** again. No new uploads should happen.
+2. Link from the reader (**Link Google account**): scan the QR, sign in on your phone, and check that the **same 6-digit code** appears on the phone and the reader. Confirm on both.
+3. Put two disposable PNG/JPEG images in the screenshot folder and run **Upload screenshots folder**. Both should appear in the app-created album in Google Photos.
+4. Run **Upload screenshots folder** again. No new uploads should happen.
 5. Turn Wi-Fi off, or stop the broker, and add an image. Attempt an upload. It should fail cleanly: local files untouched, the ledger shows the image as pending or failed, and a later retry uploads it.
 6. Restart the broker process. The reader should still get tokens and upload without re-pairing.
-7. Unpair. After that, token requests with the old credential are rejected, and the reader should require pairing again.
+7. **Unlink this device**. After that, token requests with the old credential are rejected, and the reader should require pairing again.
 
 This only verifies manual, append-only uploads. The plugin does not do full sync and never deletes anything, locally or in Google Photos.
 
 ## Limitations
 
-- Upload is manual ("Upload new images"). There is no background sync. Wi-Fi is only turned on through KOReader's normal network prompt.
+- Upload is manual (**Upload screenshots folder** / **Upload a folder…**), scans one folder level only, and has no background sync. Wi-Fi is only turned on through KOReader's normal network prompt.
 - Local files are never deleted.
 - Upload is at-least-once, not exactly-once. If `batchCreate` times out after Google has created the item, the item is marked *uncertain*. A retry can produce a duplicate in the album. The plugin shows these rather than hiding them.
 - The broker is required for every upload session (see the architecture decision above).
