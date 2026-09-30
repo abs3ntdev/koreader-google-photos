@@ -14,14 +14,14 @@ reader ──uploads + mediaItems:batchCreate (short-lived access token)──�
 
 ## Architecture decision: the broker stays in the loop
 
-Google's web-server OAuth flow needs a client secret. For the Photos Library scope, Google only issues long-lived refresh tokens to confidential clients. The secret **must not ship in the plugin**, because anyone could extract it. So:
+We chose Google's [web-server OAuth flow](https://developers.google.com/identity/protocols/oauth2/web-server) for phone-to-reader pairing, because the phone browser does the sign-in and the reader has no usable browser. That flow's confidential client secret must stay server-side, so it is **never shipped in the plugin**. This is our architecture choice, not a blanket Google requirement. Google also supports [installed-app clients](https://developers.google.com/identity/protocols/oauth2/native-app), which would be a different design with different trade-offs. The consequences:
 
 - The **broker keeps the refresh token server-side**. It is encrypted at rest with AES-256-GCM, bound to a random `device_id`, and only the SHA-256 hash of the device credential is stored.
 - The reader holds only `device_id` + `device_credential`. With them it can ask the broker for a **short-lived Google access token** (about 1 h). The access token is what uploads use. Image bytes never pass through the broker.
-- **Ongoing dependency:** if the broker is down, the reader cannot get new access tokens, so it cannot upload. This is by design. We considered alternatives:
-  - Google's device-code flow ("TV and limited input") does not allow Photos Library scopes.
-  - An installed-app client with PKCE would put a "secret" on the device.
-  - Handing the refresh token to the reader would mean an extractable long-lived credential and would still need the client secret to use it.
+- **Ongoing dependency:** if the broker is down, the reader cannot get new access tokens, so it cannot upload. This is by design. The alternatives we considered and why we did not choose them:
+  - Google's [limited-input device flow](https://developers.google.com/identity/protocols/oauth2/limited-input-device#allowedscopes) only allows a fixed list of scopes, and Photos Library scopes are not on it.
+  - An installed-app client running on the reader would need the reader itself to complete a browser redirect.
+  - Handing the web client's refresh token to the reader would put a long-lived credential on the device, and using it would still need the server-side secret.
 
 ## Pairing flow (summary)
 
@@ -48,8 +48,8 @@ Full endpoint contract: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ### Caveats (read these)
 
-- **Testing mode = 7-day tokens.** While the consent screen publishing status is *Testing*, Google expires refresh tokens after 7 days for these scopes. After that, `/api/token` returns `reauth_required` and you must pair again. To avoid this, switch the app to *In production*.
-- **Verification.** `photoslibrary.appendonly` is a sensitive scope. An app *In production* that is used by people other than the owner needs Google's OAuth app verification. A personal app (only you, under 100 users) can usually run unverified: users see an "unverified app" warning and can proceed. A public or shared deployment needs verification, and possibly a security assessment, per Google policy. Check the current Google rules before inviting others.
+- **Testing mode = 7-day tokens.** While the consent screen publishing status is *Testing*, Google expires refresh tokens after 7 days for these scopes. After that, `/api/token` returns `reauth_required` and you must pair again. To avoid this, switch the app to *In production*. See Google's [refresh token expiration](https://developers.google.com/identity/protocols/oauth2#expiration) docs.
+- **Verification.** `photoslibrary.appendonly` is classified by Google as a *sensitive* (not *restricted*) scope. Publicly available production apps that request sensitive scopes generally need OAuth app verification. Exceptions exist, for example personal-use apps and apps in Testing with listed test users. Unverified apps show an "unverified app" screen and are subject to user caps. Restricted-scope security assessments are not expected for this scope. Google's rules change, so check [OAuth app verification](https://support.google.com/cloud/answer/13463073) and the [unverified apps](https://support.google.com/cloud/answer/7454865) pages before sharing a deployment.
 - **Photos Library API changes (2025).** Since 31 March 2025, Google restricts the Library API to app-created content. Apps can upload and create albums, and add to albums they created. They cannot read the user's wider library. This plugin only uses app-created albums and `appendonly`, which remain supported. Refs: <https://developers.google.com/photos/support/updates>.
 - Google may limit how many refresh tokens a client can hold per user (older ones are silently invalidated). Re-pairing many times can therefore break older devices.
 - **Unpair semantics.** Unpair deletes the broker's device record, and the reader's credential stops working immediately. The broker then calls Google's revoke endpoint on a best-effort basis. Google may revoke the whole grant for this client and account, so **other readers paired to the same Google account may also need re-pairing**. If the revoke fails, the grant stays listed in your Google Account's third-party access page. Remove it there. Access tokens already issued (up to about 1 h) stay usable until they expire.
@@ -68,7 +68,7 @@ set -a; . ./.env; set +a
 npm start
 ```
 
-For local end-to-end tests, your phone cannot reach `localhost`. Complete the Google sign-in in a desktop browser at the pair URL instead. The reader (or the KOReader emulator) must also be able to reach the broker. The plugin refuses non-HTTPS broker URLs except loopback, so use the emulator on the same machine, or a real HTTPS deployment.
+For local end-to-end tests, your phone cannot reach `localhost`. Complete the Google sign-in in a desktop browser at the pair URL instead. The reader (or the KOReader emulator) must also be able to reach the broker. Whether the plugin accepts a non-HTTPS loopback broker is described in the plugin section below. Otherwise use a real HTTPS deployment.
 
 Checks (the Makefile runs both suites):
 
