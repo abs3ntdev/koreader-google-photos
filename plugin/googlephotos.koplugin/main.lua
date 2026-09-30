@@ -192,7 +192,7 @@ function GooglePhotos:_doPairing()
         on_complete = function()
             close_all()
             UIManager:unschedule(poll)
-            info(_("Google Photos linked."))
+            info(_("Google Photos linked.") .. "\n\n" .. App.CREDENTIAL_NOTE)
         end,
         on_fail = function(code)
             close_all()

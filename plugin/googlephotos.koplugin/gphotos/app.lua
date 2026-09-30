@@ -17,6 +17,9 @@ App.__index = App
 App.SETTING_ORIGIN = "googlephotos_broker_origin"
 App.SETTING_LAST = "googlephotos_last_folder"
 App.NET_TIMEOUT = 30
+App.CREDENTIAL_NOTE = "Note: the device link credential is stored unencrypted on this reader. "
+    .. "On FAT/vfat storage file permissions are not enforced, so anyone with access to the "
+    .. "device or its USB storage can read it. Use Unlink if the reader is lost or shared."
 
 --- Real network deps on device. CA bundle shipped by KOReader (koreader-base
 -- thirdparty/certifi -> data/ca-bundle.crt, relative to KOReader's cwd).
@@ -153,9 +156,9 @@ function App:statusText()
     local m, merr = self:_manifest(creds)
     if not m then return "Linked (" .. creds.device_id .. ")\nHistory error: " .. tostring(merr) end
     local c = m:counts()
-    return string.format("Linked device: %s\nBroker: %s\nAlbum: %s\nDone: %d  Failed: %d  Uncertain: %d",
+    return string.format("Linked device: %s\nBroker: %s\nAlbum: %s\nDone: %d  Failed: %d  Uncertain: %d\n\n%s",
         creds.device_id, origin, m:album_id() and "created" or "not yet created",
-        c.done, c.failed, c.uncertain)
+        c.done, c.failed, c.uncertain, App.CREDENTIAL_NOTE)
 end
 
 --- Revokes on the broker, then deletes the local credential. On network/5xx

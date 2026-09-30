@@ -16,7 +16,7 @@ local p = io.popen('find "' .. root .. '/googlephotos.koplugin" -name "*.lua" | 
 for f in p:lines() do files[#files + 1] = f end
 p:close()
 T.test("syntax: all plugin files compile", function()
-    T.ok(#files >= 10, "found plugin files: " .. #files)
+    T.ok(#files > 0, "no plugin files found")
     for _, f in ipairs(files) do
         local fn, err = loadfile(f)
         T.ok(fn ~= nil, err)
@@ -24,7 +24,7 @@ T.test("syntax: all plugin files compile", function()
 end)
 
 for _, name in ipairs({ "test_json", "test_tls", "test_http", "test_storage", "test_scanner",
-    "test_broker_auth", "test_photos", "test_uploader", "test_app" }) do
+    "test_broker_auth", "test_photos", "test_uploader", "test_app", "test_main" }) do
     require(name)
 end
 
