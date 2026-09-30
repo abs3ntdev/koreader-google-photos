@@ -71,7 +71,8 @@ an updated digest in `NODE_IMAGE`, or pull a newer GHCR release.
 1. Copy `deploy/unraid/kgp-broker.xml` to `/boot/config/plugins/dockerMan/templates-user/my-kgp-broker.xml`.
 2. In Docker, choose Add Container and select the `kgp-broker` template. Fill in the four
    required variables. The secret fields are masked.
-3. Extra Parameters already sets `--user 99:100`, `--restart unless-stopped`, `--read-only`,
+3. Extra Parameters already sets `--user 99:100`, `--init` (so `docker stop` is prompt instead of
+   waiting 10s for SIGKILL), `--restart unless-stopped`, `--read-only`,
    `--cap-drop ALL` and `no-new-privileges`. Leave Privileged off.
 
 ## Option B: docker compose

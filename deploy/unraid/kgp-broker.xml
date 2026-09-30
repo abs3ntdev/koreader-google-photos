@@ -17,7 +17,7 @@
   <WebUI/>
   <TemplateURL>https://raw.githubusercontent.com/abs3ntdev/koreader-google-photos/main/deploy/unraid/kgp-broker.xml</TemplateURL>
   <Icon/>
-  <ExtraParams>--user 99:100 --restart unless-stopped --read-only --tmpfs /tmp --security-opt no-new-privileges:true --cap-drop ALL</ExtraParams>
+  <ExtraParams>--user 99:100 --init --restart unless-stopped --read-only --tmpfs /tmp --security-opt no-new-privileges:true --cap-drop ALL</ExtraParams>
   <PostArgs/>
   <CPUset/>
   <DonateText/>

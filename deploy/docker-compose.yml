@@ -13,6 +13,8 @@ services:
     image: ${KGP_IMAGE:-ghcr.io/abs3ntdev/koreader-google-photos:latest}
     container_name: kgp-broker
     user: "99:100"
+    # tini as PID 1 forwards SIGTERM so `docker stop` is prompt (Node has no SIGTERM handler as PID 1).
+    init: true
     restart: unless-stopped
     env_file: ./broker.env
     environment:
