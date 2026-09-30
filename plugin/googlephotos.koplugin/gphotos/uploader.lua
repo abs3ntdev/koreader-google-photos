@@ -1,6 +1,6 @@
 --[[--
 Upload job: step-driven so the UI can yield between steps (UIManager:scheduleIn).
-Each step performs at most one network request.
+Network requests are synchronous; the UI yields between steps.
 
 Order per batch (<= 50 files):
   1. ensure app-created album exists (album id saved in manifest before use)
