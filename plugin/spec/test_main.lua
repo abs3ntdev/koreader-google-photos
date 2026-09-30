@@ -261,3 +261,30 @@ T.test("screenshot: stale online callback does not start a second job", function
     run_scheduled()
     T.eq(j1.n, 2); T.eq(j2.n, 0)
 end)
+
+T.test("screenshot: throwing screenshot handler still restores Screen.shot and ButtonDialog.new", function()
+    local shot = screenshoter()
+    new_plugin({ screenshot = shot })
+    local orig_shot, orig_new = rawget(Screen, "shot"), rawget(ButtonDialog, "new")
+    local mt = getmetatable(shot)
+    local keep = mt.onScreenshot
+    -- handler wrapped at init time, so throw from inside the dialog constructor instead
+    local real_new = orig_new
+    ButtonDialog.new = function() error("boom") end
+    local ok, err = pcall(shot.onScreenshot, shot, "/shots/t.png")
+    T.eq(ok, false); T.ok(tostring(err):find("boom"))
+    T.eq(rawget(Screen, "shot"), orig_shot)
+    ButtonDialog.new = real_new
+    T.eq(mt.onScreenshot, keep)
+end)
+
+T.test("screenshot: queued WiFi callback does nothing after plugin closed", function()
+    local shot = screenshoter()
+    local p = new_plugin({ screenshot = shot })
+    local job = fake_job(2)
+    p.app = linked_app(function() return job end)
+    shot:onScreenshot("/shots/z.png"); upload_row(shown[#shown]).callback()
+    p:onCloseWidget()
+    online_queue[1](); run_scheduled()
+    T.eq(job.n, 0); T.eq(p.job, nil)
+end)

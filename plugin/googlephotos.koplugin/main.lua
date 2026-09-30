@@ -79,6 +79,7 @@ end
 function GooglePhotos:onReaderReady() self:hookScreenshoter() end
 
 function GooglePhotos:onCloseWidget()
+    self._closed = true
     local shot = self.ui and self.ui.screenshot
     if type(shot) == "table" and rawget(shot, "_gphotos_owner") == self then
         shot._gphotos_owner = nil
@@ -131,8 +132,10 @@ function GooglePhotos:uploadFile(path)
     end
     local job, err = self.app:newUploadFileJob(path)
     if not job then info(T(_("Cannot upload: %1"), err)); return end
-    if job:total() == 0 then info(_("This screenshot was already uploaded.")); return end
-    NetworkMgr:runWhenOnline(function() self:_runJob(job) end)
+    if job:total() == 0 then info(_("This screenshot is already handled (uploaded, or pending in Resolve uncertain uploads).")); return end
+    NetworkMgr:runWhenOnline(function()
+        if not self._closed then self:_runJob(job) end -- plugin disposed while waiting for WiFi
+    end)
 end
 
 function GooglePhotos:addToMainMenu(menu_items)
