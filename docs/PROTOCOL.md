@@ -25,6 +25,8 @@ Poll `status` values:
 
 ## Phone pages (browser)
 
+Pages use `Referrer-Policy: same-origin` in both the HTTP header and HTML meta tag. This allows same-origin form POSTs to retain their `Origin`, while withholding pairing URLs from cross-origin destinations such as Google. Do not use `no-referrer` here: browsers send `Origin: null` on navigation form POSTs under that policy, and the CSRF guard correctly rejects it. Null and foreign origins remain rejected even with a valid session cookie and CSRF token.
+
 - `GET /p/:id` has no side effects. It sets an HttpOnly, Secure, SameSite=Lax `__Host-kgp_session` cookie and renders the page for the current state. After a pairing has been claimed, other sessions get 409 "already in use".
 - `POST /p/:id/start` requires the CSRF token (an HMAC of the session and pairing) and a same-origin `Origin` if present. It claims the pairing for this session and 303s to Google.
 - `GET /oauth/callback` requires a single-use `state` and the claiming session's cookie. It does the code exchange with the PKCE verifier. It requires the granted `photoslibrary.appendonly` scope and a refresh token.

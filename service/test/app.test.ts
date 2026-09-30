@@ -104,7 +104,11 @@ async function startOAuth(id: string, sid: string, csrf: string) {
     url: `/p/${id}/start`,
     cookies: { [COOKIE]: sid },
     payload: `csrf=${encodeURIComponent(csrf)}`,
-    headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://photos-pair.example.com" },
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      origin: "https://photos-pair.example.com",
+      referer: `https://photos-pair.example.com/p/${id}`,
+    },
   });
   return r;
 }
@@ -133,7 +137,11 @@ async function phoneConfirm(id: string, sid: string) {
     url: `/p/${id}/confirm`,
     cookies: { [COOKIE]: sid },
     payload: `csrf=${encodeURIComponent(page.csrf!)}`,
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      origin: "https://photos-pair.example.com",
+      referer: `https://photos-pair.example.com/p/${id}`,
+    },
   });
 }
 
@@ -266,14 +274,17 @@ test("start requires valid CSRF token bound to browser session and same origin",
   assert.equal((await startOAuth(pair.pairing_id, page.sid!, "forged")).statusCode, 403);
   const other = await openPage(pair.pairing_id);
   assert.equal((await startOAuth(pair.pairing_id, other.sid!, page.csrf!)).statusCode, 403);
-  const crossOrigin = await app.inject({
-    method: "POST",
-    url: `/p/${pair.pairing_id}/start`,
-    cookies: { [COOKIE]: page.sid! },
-    payload: `csrf=${encodeURIComponent(page.csrf!)}`,
-    headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://evil.example" },
-  });
-  assert.equal(crossOrigin.statusCode, 403);
+  for (const origin of ["https://evil.example", "null"]) {
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/p/${pair.pairing_id}/start`,
+      cookies: { [COOKIE]: page.sid! },
+      payload: `csrf=${encodeURIComponent(page.csrf!)}`,
+      headers: { "content-type": "application/x-www-form-urlencoded", origin },
+    });
+    assert.equal(rejected.statusCode, 403, `${origin} remains rejected even with a valid cookie and CSRF token`);
+  }
+  assert.equal((await startOAuth(pair.pairing_id, page.sid!, page.csrf!)).statusCode, 303);
 });
 
 test("callback: state replay rejected, wrong browser rejected, unknown state rejected", async () => {
@@ -484,7 +495,11 @@ test("security headers and body limit", async () => {
   const page = await openPage(pair.pairing_id);
   assert.match(String(page.res.headers["content-security-policy"]), /frame-ancestors 'none'/);
   assert.equal(page.res.headers["x-frame-options"], "DENY");
-  assert.equal(page.res.headers["referrer-policy"], "no-referrer");
+  // A no-referrer document makes browser form POSTs send Origin: null,
+  // which our CSRF guard correctly rejects. Both policies must permit same-origin
+  // navigation while withholding the pairing URL from cross-origin destinations.
+  assert.equal(page.res.headers["referrer-policy"], "same-origin");
+  assert.match(page.res.body, /<meta name="referrer" content="same-origin">/);
   const sc = String(page.res.headers["set-cookie"]);
   assert.match(sc, /HttpOnly/);
   assert.match(sc, /Secure/);

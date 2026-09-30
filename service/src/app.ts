@@ -59,7 +59,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.addHook("onSend", async (_req, reply, payload) => {
     reply.header("Cache-Control", "no-store");
     reply.header("Pragma", "no-cache");
-    reply.header("Referrer-Policy", "no-referrer");
+    // no-referrer also makes browser form POSTs send Origin: null, failing CSRF.
+    // same-origin retains our origin while withholding pairing URLs from Google.
+    reply.header("Referrer-Policy", "same-origin");
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("X-Frame-Options", "DENY");
     reply.header(

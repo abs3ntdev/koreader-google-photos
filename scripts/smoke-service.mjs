@@ -77,7 +77,7 @@ try {
 
   const page = await request(`/p/${pair.pairing_id}`);
   assert.equal(page.status, 200);
-  assert.equal(page.headers.get("referrer-policy"), "no-referrer");
+  assert.equal(page.headers.get("referrer-policy"), "same-origin");
   assert.equal(page.headers.get("x-frame-options"), "DENY");
   const cookie = page.headers.get("set-cookie");
   assert.ok(cookie?.includes("HttpOnly"));
@@ -91,12 +91,17 @@ try {
       "Content-Type": "application/x-www-form-urlencoded",
       Cookie: cookie.split(";")[0],
       Origin: publicOrigin,
+      Referer: `${publicOrigin}/p/${pair.pairing_id}`,
     },
     body: new URLSearchParams({ csrf }).toString(),
   };
-  assert.equal((await request(`/p/${pair.pairing_id}/start`, {
-    ...startOptions, headers: { ...startOptions.headers, Origin: "https://attacker.invalid" },
-  })).status, 403);
+  for (const rejectedOrigin of ["https://attacker.invalid", "null"]) {
+    const headers = { ...startOptions.headers, Origin: rejectedOrigin };
+    delete headers.Referer;
+    assert.equal((await request(`/p/${pair.pairing_id}/start`, {
+      ...startOptions, headers,
+    })).status, 403);
+  }
   const started = await request(`/p/${pair.pairing_id}/start`, startOptions);
   assert.equal(started.status, 303);
   const google = new URL(started.headers.get("location"));

@@ -6,7 +6,7 @@ function esc(s: string): string {
 
 function layout(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="same-origin">
 <title>${esc(title)}</title><style>
 body{font-family:system-ui,sans-serif;max-width:32rem;margin:2rem auto;padding:0 1rem;line-height:1.4}
 .code{font-size:2.5rem;letter-spacing:.3rem;font-weight:700;text-align:center;margin:1rem 0}
