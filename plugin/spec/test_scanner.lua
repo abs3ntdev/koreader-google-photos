@@ -22,3 +22,20 @@ T.test("scanner: refuses symlinked folder", function()
     local lfs = T.fake_lfs({ ["/l"] = { mode = "link" } })
     T.eq(Scanner.scan(lfs, "/l"), nil)
 end)
+
+T.test("scanner.single: exact file only; rejects symlink, hidden, unsupported, symlinked parent", function()
+    local lfs = T.fake_lfs({
+        ["/shots"] = { mode = "directory" },
+        ["/shots/a.png"] = { mode = "file", size = 10, modification = 5 },
+        ["/shots/b.png"] = { mode = "file", size = 11, modification = 5 },
+        ["/shots/link.png"] = { mode = "link", target = "/shots/a.png" },
+        ["/shots/.h.png"] = { mode = "file", size = 1 },
+        ["/shots/n.txt"] = { mode = "file", size = 1 },
+        ["/l"] = { mode = "link", target = "/shots" },
+    })
+    local files = Scanner.single(lfs, "/shots/a.png")
+    T.eq(#files, 1); T.eq(files[1].key, "/shots/a.png|10|5")
+    for _, bad in ipairs({ "/shots/link.png", "/shots/.h.png", "/shots/n.txt", "/shots/missing.png", "/l/a.png", "a.png" }) do
+        T.eq(Scanner.single(lfs, bad), nil, bad)
+    end
+end)

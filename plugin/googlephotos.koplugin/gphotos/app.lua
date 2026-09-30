@@ -88,10 +88,16 @@ function App:_manifest(creds)
     return Manifest.load(self.data_dir, creds.device_id)
 end
 
-function App:newUploadJob(dir)
+--- Upload job for one exact file (e.g. a just-captured screenshot).
+function App:newUploadFileJob(path)
+    return self:newUploadJob(path, true)
+end
+
+function App:newUploadJob(dir, single)
     local creds, cerr = self:creds()
     if not creds then return nil, "not linked (" .. tostring(cerr) .. ")" end
-    local files, serr = Scanner.scan(self.lfs, dir)
+    local files, serr
+    if single then files, serr = Scanner.single(self.lfs, dir) else files, serr = Scanner.scan(self.lfs, dir) end
     if not files then return nil, serr end
     local manifest, merr = self:_manifest(creds)
     if not manifest then return nil, merr end

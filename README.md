@@ -110,6 +110,7 @@ For container deployment, see [docs/DEPLOY.md](docs/DEPLOY.md). The image is pub
    - **Upload screenshots folder** uploads from KOReader's screenshot directory.
    - **Upload a folder…** lets you pick any folder.
    Both look at one folder level only (not recursive) and skip files that are already handled.
+   - **Upload to Google Photos** button in KOReader's "Screenshot saved to" dialog uploads only that one new screenshot (after the normal Wi-Fi prompt). Nothing is uploaded unless you tap it.
 
 Other menu items:
 
@@ -127,6 +128,7 @@ Other menu items:
 - **Ambiguous creates.** Before sending `mediaItems:batchCreate`, the plugin writes the batch as `creating` to the manifest. If the connection drops, or KOReader restarts, before the result is recorded, those entries become **uncertain**. **Resolve uncertain uploads** lets you check the album on your phone and either mark them as done, or re-queue them (which may create duplicates). Exactly-once delivery is not promised.
 - **UI blocking.** Network calls are synchronous LuaSocket requests and **block the KOReader UI while each step runs**. The upload is split into steps, and control goes back to KOReader between steps via `UIManager:scheduleIn`, so you can tap to stop after the current file. The 30 s timeout applies to each socket operation, such as connect or a single read or write. It is not a limit on a whole request or step. A slow connection can therefore freeze the UI longer than 30 s. A single step can also make more than one request, for example fetching or refreshing an access token from the broker and retrying once after a rejected token.
 - **Wi-Fi.** Network use goes through KOReader's normal Wi-Fi prompt or turn-on behavior. The plugin never uploads in the background.
+- **Screenshot button.** KOReader's screenshot dialog has no extension event, so the plugin wraps the screenshot handlers on the current reader/file browser's Screenshoter instance (not the class). Only while a screenshot is being taken, it briefly observes `Screen:shot` to learn the exact saved path and adds one row to that dialog, restoring both before returning. Stock buttons are unchanged. The file is validated like a folder scan (regular non-hidden image, no symlinks) and recorded in the same manifest, so a failure leaves it on disk and not marked done. If KOReader changes its screenshot code, the button may silently stop appearing; menu uploads still work.
 - **No deletion.** Local files are never deleted or modified.
 
 ## Validation performed so far
@@ -140,7 +142,7 @@ still block the live phone-to-reader-to-Google workflow.
 | `cd service && npm run check`: typecheck + 22 tests | All broker routes in-process: pairing, CSRF, state/PKCE, claimant binding, dual confirmation, re-delivery until ack, expiry, replay, exact scope, refresh errors, unpair, store failure with finalize retry via poll, and races (expiry during code exchange, unpair during refresh) | Real routes and real openid-client. **Google's token endpoints are a fake injected fetch** |
 | `make smoke` | The real `server.ts` process over loopback HTTP: startup, health, pairing, polling auth, phone CSRF and OAuth redirect, log redaction, body limit | Real process. Dummy OAuth env, no Google calls |
 | Plugin TLS verifier: 9 cases | The plugin's production HTTP/TLS code on isolated LuaSec/LuaSocket builds, against local servers signed by a test CA. Cases: trusted host match, wrong host, untrusted CA, missing CA bundle, wildcard depth, SNI, no redirect following, no credential or body leakage (checked server-side) | Real TLS stack. Hostnames mapped to loopback. Not KOReader's bundled build, not device hardware |
-| Lua plugin specs (`make check`): 54 tests | Plugin core logic, plus `main.lua` loaded under KOReader UI stubs (menu wiring, status message) | Pure Lua with stubbed KOReader modules, not a real KOReader runtime |
+| Lua plugin specs (`make check`): 60 tests | Plugin core logic, plus `main.lua` loaded under KOReader UI stubs (menu wiring, status message) | Pure Lua with stubbed KOReader modules, not a real KOReader runtime |
 
 **Not yet validated:** real Google OAuth or the Photos API, a real e-reader, a deployed HTTPS broker. See the acceptance checklist below.
 

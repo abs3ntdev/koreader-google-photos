@@ -35,6 +35,7 @@ local mocks = {
     ["ui/widget/inputdialog"] = { new = widget("input") },
     ["ui/network/manager"] = { runWhenOnline = function(_, cb) online_queue[#online_queue + 1] = cb end },
     ["ui/uimanager"] = UIManager,
+    device = { screen = { shot = function(_, name) return not name:find("FAIL"), "EIO" end } },
     ["ui/widget/container/widgetcontainer"] = { extend = function(_, cls)
         cls.__index = cls
         cls.new = function(c, o) o = setmetatable(o or {}, c); if o.init then o:init() end; return o end
@@ -56,10 +57,12 @@ _G.G_reader_settings = { readSetting = function(_, k) return settings_data[k] en
 
 local GooglePhotos = dofile((arg[0]:match("^(.*)/spec/run%.lua$") or "plugin") .. "/googlephotos.koplugin/main.lua")
 
-local function new_plugin()
+local function new_plugin(ui)
     shown, scheduled, online_queue = {}, {}, {}
     local registered
-    local p = GooglePhotos:new{ ui = { menu = { registerToMainMenu = function(_, w) registered = w end } } }
+    ui = ui or {}
+    ui.menu = { registerToMainMenu = function(_, w) registered = w end }
+    local p = GooglePhotos:new{ ui = ui }
     return p, registered
 end
 
@@ -143,4 +146,118 @@ T.test("main: upload job creation error is shown, nothing queued", function()
     p:uploadFolder("/x")
     T.ok(last_info():find("Cannot upload: not linked"))
     T.eq(#online_queue, 0)
+end)
+
+-- Screenshot dialog -------------------------------------------------------
+-- Screenshoter stand-in mirroring upstream onScreenshot's observable calls
+-- (Screen:shot(name), then ButtonDialog:new{buttons, tap_close_callback}).
+local ButtonDialog = mocks["ui/widget/buttondialog"]
+local Screen = mocks.device.screen
+local function screenshoter()
+    local S = {}
+    S.__index = S
+    function S:onScreenshot(name)
+        local ok = Screen:shot(name)
+        if not ok then return false end
+        local d = ButtonDialog:new{ buttons = {{{ text = "Delete" }, { text = "Set as book cover" }}, {{ text = "View" }}},
+            tap_close_callback = function() end }
+        d.onClose = function() d.closed = true end
+        UIManager:show(d)
+        return true
+    end
+    S.onKeyPressShoot = S.onScreenshot
+    S.onTapDiagonal = S.onScreenshot
+    S.onSwipeDiagonal = S.onScreenshot
+    return setmetatable({}, S)
+end
+local function upload_row(d)
+    for _, row in ipairs(d.buttons) do
+        for _, b in ipairs(row) do if b.text == "Upload to Google Photos" then return b end end
+    end
+end
+local function linked_app(job_for)
+    local calls = {}
+    return { isPaired = function() return true end, summarize = function(_, _, r) return "END " .. r end,
+        newUploadFileJob = function(_, path) calls[#calls + 1] = path; return job_for(path) end }, calls
+end
+
+T.test("screenshot: dialog gets one upload row; tap uploads exactly that file after wifi", function()
+    local shot = screenshoter()
+    local p = new_plugin({ screenshot = shot })
+    local job = fake_job(3)
+    local app, calls = linked_app(function() return job end)
+    p.app = app
+    T.ok(shot:onTapDiagonal("/shots/a.png"))
+    local d = shown[#shown]
+    T.eq(#d.buttons, 3, "stock rows kept, one row added")
+    T.eq(d.buttons[1][1].text, "Delete")
+    upload_row(d).callback()
+    T.ok(d.closed)
+    T.eq(calls[1], "/shots/a.png")
+    T.eq(#online_queue, 1); T.eq(job.n, 0, "no upload before online")
+    online_queue[1](); run_scheduled()
+    T.eq(job.n, 3); T.eq(last_info(), "END done")
+    T.eq(Screen.shot ~= nil and rawget(Screen, "shot") ~= nil, true)
+    T.eq(rawget(ButtonDialog, "new") ~= nil, true)
+end)
+
+T.test("screenshot: failed capture and unrelated dialogs are untouched; hooks restored", function()
+    local shot = screenshoter()
+    local p = new_plugin({ screenshot = shot })
+    local orig_shot, orig_new = Screen.shot, ButtonDialog.new
+    T.eq(shot:onScreenshot("/shots/FAIL.png"), false)
+    T.eq(#shown, 0)
+    T.eq(Screen.shot, orig_shot); T.eq(ButtonDialog.new, orig_new)
+    p:resolveUncertain() -- unrelated ButtonDialog outside a screenshot
+    local other = ButtonDialog:new{ buttons = {{{ text = "x" }}}, tap_close_callback = function() end }
+    T.eq(upload_row(other), nil)
+end)
+
+T.test("screenshot: reloading plugin does not double-wrap and routes to newest instance", function()
+    local shot = screenshoter()
+    local ui = { screenshot = shot }
+    local p1 = new_plugin(ui)
+    local wrapped = shot.onScreenshot
+    local p2 = new_plugin(ui)
+    T.eq(shot.onScreenshot, wrapped, "wrapped once")
+    local job = fake_job(1)
+    p2.app = linked_app(function() return job end)
+    p1.app = { isPaired = function() error("stale instance used") end }
+    shot:onScreenshot("/shots/b.png")
+    local d = shown[#shown]
+    T.eq(#d.buttons, 3)
+    upload_row(d).callback()
+    T.eq(#online_queue, 1)
+    p2:onCloseWidget()
+    shot:onScreenshot("/shots/c.png")
+    T.eq(#shown[#shown].buttons, 2, "no row once owner closed")
+end)
+
+T.test("screenshot: unlinked, busy and invalid-file taps queue nothing", function()
+    local shot = screenshoter()
+    local p = new_plugin({ screenshot = shot })
+    p.app = { isPaired = function() return false end }
+    shot:onScreenshot("/shots/d.png"); upload_row(shown[#shown]).callback()
+    T.ok(last_info():find("Link your Google account first"))
+    p.app = linked_app(function() return nil, "not a regular file" end)
+    shot:onScreenshot("/shots/e.png"); upload_row(shown[#shown]).callback()
+    T.ok(last_info():find("Cannot upload: not a regular file"))
+    p.job = fake_job(1)
+    shot:onScreenshot("/shots/f.png"); upload_row(shown[#shown]).callback()
+    T.ok(last_info():find("upload is running"))
+    T.eq(#online_queue, 0)
+end)
+
+T.test("screenshot: stale online callback does not start a second job", function()
+    local shot = screenshoter()
+    local p = new_plugin({ screenshot = shot })
+    local j1, j2 = fake_job(2), fake_job(2)
+    local jobs = { j1, j2 }
+    p.app = linked_app(function() return table.remove(jobs, 1) end)
+    shot:onScreenshot("/shots/g.png"); upload_row(shown[#shown]).callback()
+    shot:onScreenshot("/shots/h.png"); upload_row(shown[#shown]).callback()
+    online_queue[1]()
+    online_queue[2]() -- WiFi came up late; first job still running
+    run_scheduled()
+    T.eq(j1.n, 2); T.eq(j2.n, 0)
 end)

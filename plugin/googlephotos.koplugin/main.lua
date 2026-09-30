@@ -32,6 +32,10 @@ local GooglePhotos = WidgetContainer:extend{
     is_doc_only = false,
 }
 
+local function info(text, timeout)
+    UIManager:show(InfoMessage:new{ text = text, timeout = timeout })
+end
+
 function GooglePhotos:init()
     self.app = App.new{
         data_dir = DataStorage:getSettingsDir() .. "/googlephotos",
@@ -41,10 +45,94 @@ function GooglePhotos:init()
         net_deps = function() return App.default_net_deps() end,
     }
     self.ui.menu:registerToMainMenu(self)
+    self:hookScreenshoter()
 end
 
-local function info(text, timeout)
-    UIManager:show(InfoMessage:new{ text = text, timeout = timeout })
+-- Screenshot dialog integration ---------------------------------------------
+-- Upstream Screenshoter:onScreenshot (frontend/ui/widget/screenshoter.lua)
+-- builds its ButtonDialog inline and emits no event. We wrap the handler on
+-- THIS ui's Screenshoter instance only (never the class) and, only for the
+-- synchronous duration of that call, observe Screen:shot (to learn the exact
+-- path that was written) and ButtonDialog.new (to append one extra row).
+-- Both are restored before returning, even on error.
+local SHOT_HANDLERS = { "onScreenshot", "onKeyPressShoot", "onTapDiagonal", "onSwipeDiagonal" }
+
+function GooglePhotos:hookScreenshoter()
+    local shot = self.ui and self.ui.screenshot
+    if type(shot) ~= "table" then return end
+    shot._gphotos_owner = self -- newest plugin instance for this ui wins
+    if shot._gphotos_hooked then return end
+    shot._gphotos_hooked = true
+    for _, name in ipairs(SHOT_HANDLERS) do
+        local orig = shot[name]
+        if type(orig) == "function" then
+            shot[name] = function(s, ...)
+                local owner = rawget(s, "_gphotos_owner")
+                if not owner then return orig(s, ...) end
+                return owner:_screenshotWrapped(orig, s, ...)
+            end
+        end
+    end
+end
+
+-- Idempotent re-check in case ui.screenshot was attached after plugin init.
+function GooglePhotos:onReaderReady() self:hookScreenshoter() end
+
+function GooglePhotos:onCloseWidget()
+    local shot = self.ui and self.ui.screenshot
+    if type(shot) == "table" and rawget(shot, "_gphotos_owner") == self then
+        shot._gphotos_owner = nil
+    end
+end
+
+local function pack(...) return { n = select("#", ...), ... } end
+
+function GooglePhotos:_screenshotWrapped(orig, shot, ...)
+    local Screen = require("device").screen
+    local captured
+    local had_shot, old_shot = rawget(Screen, "shot") ~= nil, rawget(Screen, "shot")
+    local real_shot = Screen.shot
+    local had_new, old_new = rawget(ButtonDialog, "new") ~= nil, rawget(ButtonDialog, "new")
+    local real_new = ButtonDialog.new
+    Screen.shot = function(scr, name, ...)
+        local r = pack(real_shot(scr, name, ...))
+        if r[1] and type(name) == "string" then captured = name end
+        return unpack(r, 1, r.n)
+    end
+    ButtonDialog.new = function(cls, o, ...)
+        if captured and type(o) == "table" and type(o.buttons) == "table" and o.tap_close_callback then
+            local path, dialog = captured, nil
+            captured = nil -- decorate only the first dialog after the capture
+            table.insert(o.buttons, {{
+                text = _("Upload to Google Photos"),
+                callback = function()
+                    if dialog and dialog.onClose then dialog:onClose() end
+                    self:uploadFile(path)
+                end,
+            }})
+            dialog = real_new(cls, o, ...)
+            return dialog
+        end
+        return real_new(cls, o, ...)
+    end
+    local r = pack(pcall(orig, shot, ...))
+    if had_shot then Screen.shot = old_shot else Screen.shot = nil end
+    if had_new then ButtonDialog.new = old_new else ButtonDialog.new = nil end
+    if not r[1] then error(r[2], 0) end
+    return unpack(r, 2, r.n)
+end
+
+--- Upload exactly one file (the screenshot just taken). Never touches the file.
+function GooglePhotos:uploadFile(path)
+    if self:busy() then return end
+    if not self.app:isPaired() then
+        info(_("Link your Google account first: Tools > Google Photos > Link Google account."))
+        return
+    end
+    local job, err = self.app:newUploadFileJob(path)
+    if not job then info(T(_("Cannot upload: %1"), err)); return end
+    if job:total() == 0 then info(_("This screenshot was already uploaded.")); return end
+    NetworkMgr:runWhenOnline(function() self:_runJob(job) end)
 end
 
 function GooglePhotos:addToMainMenu(menu_items)
