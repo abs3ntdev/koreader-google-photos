@@ -105,6 +105,17 @@ photos-pair.example.com {
 
 See `plugin/googlephotos.koplugin/README` notes in the plugin's own docs for manifest, retry and uncertain-upload behavior.
 
+## Validation performed so far
+
+| Check | What it exercises | Real vs stubbed |
+|---|---|---|
+| `cd service && npm run check`: typecheck + 21 tests | All broker routes in-process: pairing, CSRF, state/PKCE, claimant binding, dual confirmation, re-delivery until ack, expiry, replay, exact scope, refresh errors, unpair, store failure, and races (expiry during code exchange, unpair during refresh) | Real routes and real openid-client. **Google's token endpoints are a fake injected fetch** |
+| `make smoke` | The real `server.ts` process over loopback HTTP: startup, health, pairing, polling auth, phone CSRF and OAuth redirect, log redaction, body limit | Real process. Dummy OAuth env, no Google calls |
+| Plugin TLS verifier: 9 cases | The plugin's production HTTP/TLS code on isolated LuaSec/LuaSocket builds, against local servers signed by a test CA. Cases: trusted host match, wrong host, untrusted CA, missing CA bundle, wildcard depth, SNI, no redirect following, no credential or body leakage (checked server-side) | Real TLS stack. Hostnames mapped to loopback. Not KOReader's bundled build, not device hardware |
+| Lua plugin specs (`make check`) | Plugin core logic | Count is reported with the plugin |
+
+**Not yet validated:** real Google OAuth or the Photos API, a real e-reader, a deployed HTTPS broker. See the acceptance checklist below.
+
 ## First live acceptance checklist (not yet performed)
 
 None of this has been run against real Google or a real device yet. Run through it once after your first deployment:
