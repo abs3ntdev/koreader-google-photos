@@ -3,3 +3,4 @@ dist/
 service/data/
 *.tmp
 .env
+deploy/broker.env

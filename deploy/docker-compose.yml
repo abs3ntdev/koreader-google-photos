@@ -1,0 +1,32 @@
+# Single-replica broker. Build locally (no public image is published):
+#   docker compose -f deploy/docker-compose.yml build
+# Prepare appdata once (owned by the runtime UID:GID, private):
+#   mkdir -p /mnt/user/appdata/kgp-broker && chown 99:100 /mnt/user/appdata/kgp-broker && chmod 700 /mnt/user/appdata/kgp-broker
+# Then: cp deploy/broker.env.example deploy/broker.env, fill it in, chmod 600, and
+#   docker compose -f deploy/docker-compose.yml up -d
+name: kgp-broker
+services:
+  broker:
+    build:
+      context: ../service
+    image: koreader-google-photos-broker:local
+    container_name: kgp-broker
+    user: "99:100"
+    restart: unless-stopped
+    env_file: ./broker.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8787"
+      DATA_FILE: /config/data/devices.json
+    volumes:
+      - ${KGP_APPDATA:-/mnt/user/appdata/kgp-broker}:/config
+    ports:
+      # Reachable only by your HTTPS reverse proxy. Adjust bind address to your setup.
+      - "${KGP_BIND:-127.0.0.1}:8787:8787"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

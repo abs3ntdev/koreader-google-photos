@@ -97,6 +97,10 @@ photos-pair.example.com {
 - Run a single instance only. Pairing state is in memory, so do not load-balance across replicas.
 - Logs contain only method, route pattern and status. They never include query strings, headers, tokens or bodies.
 
+### Docker / Unraid
+
+For container deployment (the image is built locally, and nothing is published to a registry), see [docs/DEPLOY.md](docs/DEPLOY.md). It includes `service/Dockerfile`, `deploy/docker-compose.yml`, and an Unraid template at `deploy/unraid/kgp-broker.xml`. The container runs as `99:100`, listens on `0.0.0.0:8787` inside the container, and stores data under the bind-mounted `/config`, which must be owned by `99:100` with mode 700.
+
 ## Installing the plugin
 
 1. `make package`, then copy the `googlephotos.koplugin` folder from the zip into KOReader's `plugins/` directory on the device.

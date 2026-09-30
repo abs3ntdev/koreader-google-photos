@@ -1,0 +1,14 @@
+# Allowlist: only what the image needs.
+*
+!package.json
+!package-lock.json
+!src/
+!src/**
+!docker/healthcheck.mjs
+# Never ship secrets or data even if placed under src/
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/data/
+**/devices.json
