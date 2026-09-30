@@ -32,7 +32,7 @@ chown 99:100 /mnt/user/appdata/kgp-broker
 chmod 700 /mnt/user/appdata/kgp-broker
 ```
 
-On first start the broker creates `/config/data` with mode 0700 and `devices.json` with mode 0600.
+On first start the broker creates `/config/data` with mode 0700. It does not create `devices.json` until the first device pairs successfully, and then writes it with mode 0600.
 If the data directory is group- or world-accessible, or is owned by a different UID, the broker
 refuses to start. To use a different UID:GID, change both the `--user` value and the owner of
 that directory. Do not run Unraid's "New Permissions" tool on this share, because it would
