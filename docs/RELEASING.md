@@ -26,7 +26,7 @@ git push origin v0.1.0
 
 ## GHCR visibility
 
-The first push creates a private package. Make it public once: GitHub profile > Packages > `koreader-google-photos` > Package settings > Change visibility > Public. Also confirm the package is linked to this repository (the OCI source label set by `docker/metadata-action` normally does this).
+New packages may default to private. Verify an anonymous pull (for example `DOCKER_CONFIG=$(mktemp -d) docker pull ghcr.io/abs3ntdev/koreader-google-photos:latest`). If it is denied, make the package public once: GitHub profile > Packages > `koreader-google-photos` > Package settings > Change visibility > Public. Also confirm the package is linked to this repository (the OCI source label set by `docker/metadata-action` normally does this).
 
 ## Updating pinned actions
 
