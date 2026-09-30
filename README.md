@@ -105,6 +105,20 @@ photos-pair.example.com {
 
 See `plugin/googlephotos.koplugin/README` notes in the plugin's own docs for manifest, retry and uncertain-upload behavior.
 
+## First live acceptance checklist (not yet performed)
+
+None of this has been run against real Google or a real device yet. Run through it once after your first deployment:
+
+1. Create a real Google Cloud Web client (see [Google Cloud setup](#google-cloud-setup)) and deploy the broker over HTTPS. `https://<host>/healthz` should return `{"ok":true}`.
+2. Pair from the reader: scan the QR, sign in on your phone, and check that the **same 6-digit code** appears on the phone and the reader. Confirm on both.
+3. Put two disposable PNG/JPEG images in the upload folder and run **Upload new images**. Both should appear in the app-created album in Google Photos.
+4. Run **Upload new images** again. No new uploads should happen.
+5. Turn Wi-Fi off, or stop the broker, and add an image. Attempt an upload. It should fail cleanly: local files untouched, the ledger shows the image as pending or failed, and a later retry uploads it.
+6. Restart the broker process. The reader should still get tokens and upload without re-pairing.
+7. Unpair. After that, token requests with the old credential are rejected, and the reader should require pairing again.
+
+This only verifies manual, append-only uploads. The plugin does not do full sync and never deletes anything, locally or in Google Photos.
+
 ## Limitations
 
 - Upload is manual ("Upload new images"). There is no background sync. Wi-Fi is only turned on through KOReader's normal network prompt.
